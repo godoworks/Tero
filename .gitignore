@@ -1,11 +1,15 @@
-# Dependencias
-/vendor/
-/node_modules/
+# Dependencias (en cualquier subproyecto, no solo en la raíz)
+vendor/
+node_modules/
 
 # Configuración local
 .env
 .env.local
 .env.*.local
+
+# Resultado de compilar la aplicación de campo: se construye en cada
+# despliegue, no se versiona.
+/docs/app/
 
 # Compilados y caché
 /public/build/

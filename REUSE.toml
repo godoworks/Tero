@@ -14,3 +14,21 @@ path = "LICENSE"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2007 Free Software Foundation, Inc."
 SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = ["app-campo/package.json", "app-campo/package-lock.json", "app-campo/tsconfig.json"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 GoDoWorks"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "app-campo/public/favicon.svg"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 GoDoWorks"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = ["app-campo/public/icono-192.png", "app-campo/public/icono-512.png"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 GoDoWorks"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
