@@ -49,6 +49,33 @@ jobs:
           fi
           echo "Todos los commits están firmados."
 
+  # Tero emite actas con validez administrativa. Un plazo mal calculado o un
+  # incumplimiento que se pierde no se ven en pantalla: se ven en el documento
+  # que recibe una persona. Por eso las reglas que arman el acta se prueban en
+  # cada cambio, no cuando alguien se acuerda.
+  pruebas:
+    name: Pruebas automatizadas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app-campo/package-lock.json
+
+      # `npm ci` y no `npm install`: instala exactamente lo que fija el
+      # package-lock, así una prueba que pasa acá pasa igual en la máquina de
+      # quien contribuye.
+      - name: Instalar dependencias
+        working-directory: app-campo
+        run: npm ci
+
+      - name: Correr las pruebas
+        working-directory: app-campo
+        run: npm run probar
+
   configuracion:
     name: Configuración de contenedores
     runs-on: ubuntu-latest

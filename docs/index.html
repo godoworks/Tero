@@ -384,6 +384,17 @@ SPDX-License-Identifier: CC-BY-4.0
 
   .boton-probar:hover { background: var(--tinta); }
 
+  .probar-enlaces { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+
+  .boton-probar--tenue {
+    background: transparent;
+    color: var(--tinta);
+    border: 2px solid var(--borde);
+    padding: calc(0.85rem - 2px) calc(1.4rem - 2px);
+  }
+
+  .boton-probar--tenue:hover { background: var(--superficie-2, transparent); border-color: var(--tinta); }
+
   @media (prefers-reduced-motion: no-preference) {
     .portada-int > * { animation: subir 0.6s cubic-bezier(0.16, 0.84, 0.44, 1) backwards; }
     .portada-int > *:nth-child(2) { animation-delay: 0.07s; }
@@ -587,9 +598,14 @@ SPDX-License-Identifier: CC-BY-4.0
         <li>Elegí una tarea, completá el checklist, sacá fotos y firmá.</li>
         <li>Mirá cómo sale el acta en PDF, sin conexión.</li>
       </ol>
-      <a class="boton-probar" href="./app/">Abrir la demostración →</a>
+      <div class="probar-enlaces">
+        <a class="boton-probar" href="./app/">Abrir la demostración →</a>
+        <a class="boton-probar boton-probar--tenue" href="./app/#/reclamo/nuevo">Ver el canal del vecino →</a>
+      </div>
       <p class="chico tenue" style="margin:0">
-        Los datos son sintéticos y quedan solo en tu dispositivo. Nada se envía a ningún servidor.
+        Son dos pantallas distintas para dos personas distintas: la del inspector y la del vecino
+        que reporta un problema y después consulta en qué anda. Los datos son sintéticos y quedan
+        solo en tu dispositivo. Nada se envía a ningún servidor.
       </p>
     </div>
   </div>

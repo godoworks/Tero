@@ -19,16 +19,19 @@
 import type { IDBPObjectStore, StoreNames } from 'idb'
 import { abrirBd, ALMACENES, type BdTero, type EsquemaTero } from './bd'
 import type {
-  Almacen, ColaSincronizacion, FiltroInspecciones, FiltroObjetos,
-  RepositorioAuditoria, RepositorioFormularios, RepositorioInspecciones,
-  RepositorioTerritorio,
+  Almacen, ColaSincronizacion, ContactoReclamo, DatosNuevoReclamo,
+  EstadoReclamo, FiltroInspecciones, FiltroObjetos, FiltroReclamos,
+  PasoSeguimiento, Reclamo, RepositorioAuditoria, RepositorioFormularios,
+  RepositorioInspecciones, RepositorioReclamos, RepositorioTerritorio,
+  ResultadoVisible, SeguimientoReclamo,
 } from './contratos'
 import type {
-  Acta, Evidencia, EventoAuditoria, Firma, FormularioVersion, Inspeccion,
-  ItemCola, ObjetoInspeccionable, Organismo, Respuesta, TipoInspeccion,
-  TipoObjeto, Uuid, Zona,
+  Acta, Evidencia, EventoAuditoria, FechaHora, Firma, FormularioVersion,
+  Inspeccion, ItemCola, ObjetoInspeccionable, Organismo, Respuesta,
+  TipoInspeccion, TipoObjeto, Uuid, Zona,
 } from '@/dominio/tipos'
 import { ahora, calcularHash, distanciaMetros, nuevoUuid } from '@/dominio/utilidades'
+import { aDatoPlano } from './planos'
 import { construirSemilla } from './semilla'
 
 // ── Utilidades internas ───────────────────────────────────────────────
@@ -97,7 +100,7 @@ async function encolarEn(
     estado: 'pendiente',
   }
   // El id lo pone IndexedDB (autoIncrement); por eso se omite al escribir.
-  await cola.add(nuevo as ItemCola)
+  await cola.add(aDatoPlano(nuevo) as ItemCola)
 }
 
 // ── Territorio ────────────────────────────────────────────────────────
@@ -167,7 +170,7 @@ async function obtenerObjeto(id: Uuid): Promise<ObjetoInspeccionable | undefined
 async function guardarObjeto(objeto: ObjetoInspeccionable): Promise<void> {
   const bd = await abrirBd()
   const tx = bd.transaction(['objetos', 'cola'], 'readwrite')
-  await tx.objectStore('objetos').put(objeto)
+  await tx.objectStore('objetos').put(aDatoPlano(objeto))
   await encolarEn(tx.objectStore('cola'), 'objeto', objeto.id)
   await tx.done
 }
@@ -273,7 +276,7 @@ async function guardarInspeccion(inspeccion: Inspeccion): Promise<void> {
     actualizadaEn: ahora(),
   }
 
-  await store.put(fusionada)
+  await store.put(aDatoPlano(fusionada))
   await encolarEn(tx.objectStore('cola'), 'inspeccion', fusionada.uuid)
   await tx.done
 }
@@ -288,7 +291,7 @@ async function guardarRespuesta(respuesta: Respuesta): Promise<void> {
   const tx = bd.transaction(['respuestas', 'cola'], 'readwrite')
   // Una respuesta por inspeccion: la clave del almacen es el uuid, de modo que
   // el autoguardado mientras se completa el formulario pisa siempre la misma.
-  await tx.objectStore('respuestas').put(respuesta)
+  await tx.objectStore('respuestas').put(aDatoPlano(respuesta))
   await encolarEn(tx.objectStore('cola'), 'respuesta', respuesta.inspeccionUuid)
   await tx.done
 }
@@ -309,7 +312,7 @@ async function guardarEvidencia(evidencia: Evidencia): Promise<void> {
 
   const bd = await abrirBd()
   const tx = bd.transaction(['evidencias', 'cola'], 'readwrite')
-  await tx.objectStore('evidencias').put(completa)
+  await tx.objectStore('evidencias').put(aDatoPlano(completa))
   await encolarEn(tx.objectStore('cola'), 'evidencia', completa.id)
   await tx.done
 }
@@ -327,7 +330,7 @@ async function obtenerFirma(inspeccionUuid: Uuid): Promise<Firma | undefined> {
 async function guardarFirma(firma: Firma): Promise<void> {
   const bd = await abrirBd()
   const tx = bd.transaction(['firmas', 'cola'], 'readwrite')
-  await tx.objectStore('firmas').put(firma)
+  await tx.objectStore('firmas').put(aDatoPlano(firma))
   await encolarEn(tx.objectStore('cola'), 'firma', firma.inspeccionUuid)
   await tx.done
 }
@@ -340,7 +343,7 @@ async function obtenerActa(inspeccionUuid: Uuid): Promise<Acta | undefined> {
 async function guardarActa(acta: Acta): Promise<void> {
   const bd = await abrirBd()
   const tx = bd.transaction(['actas', 'cola'], 'readwrite')
-  await tx.objectStore('actas').put(acta)
+  await tx.objectStore('actas').put(aDatoPlano(acta))
   // La cola no tiene tipo propio para actas porque el acta no viaja sola: va
   // con su inspeccion, y el servidor la reconoce por ese uuid.
   await encolarEn(tx.objectStore('cola'), 'inspeccion', acta.inspeccionUuid)
@@ -385,6 +388,319 @@ const inspecciones: RepositorioInspecciones = {
   siguienteNumeroActa,
 }
 
+// ── Reclamos ──────────────────────────────────────────────────────────
+
+/**
+ * Alfabeto del codigo de seguimiento.
+ *
+ * Faltan la I, la L, la O, el 0 y el 1 a proposito: el codigo se dicta por
+ * telefono y se anota en un papel. «Cero» y «o», «uno», «i» y «ele» son la
+ * fuente de casi todos los errores de transcripcion, y un codigo mal anotado
+ * es un vecino que no puede consultar lo suyo.
+ */
+const ALFABETO_CODIGO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+const LARGO_CODIGO = 4
+const PREFIJO_CODIGO = 'RC-'
+
+/** Cuantas veces se vuelve a sortear si el codigo ya estaba tomado. */
+const INTENTOS_CODIGO = 8
+
+/** Estados del reclamo en el orden en que ocurren. La linea de tiempo del vecino. */
+const ORDEN_ESTADO: EstadoReclamo[] = ['recibido', 'asignado', 'inspeccionado', 'resuelto']
+
+/** Como se nombra cada paso en la pantalla publica. Nada de jerga del organismo. */
+const TITULO_PASO: Record<EstadoReclamo, string> = {
+  recibido: 'Recibido',
+  asignado: 'Asignado a un inspector',
+  inspeccionado: 'Inspeccionado',
+  resuelto: 'Resuelto',
+}
+
+function sortearCodigo(): string {
+  const valores = new Uint32Array(LARGO_CODIGO)
+  crypto.getRandomValues(valores)
+  let cuerpo = ''
+  for (const valor of valores) cuerpo += ALFABETO_CODIGO[valor % ALFABETO_CODIGO.length]
+  return PREFIJO_CODIGO + cuerpo
+}
+
+/**
+ * Deja el codigo como se guardo, venga como venga escrito.
+ *
+ * Se aceptan minusculas, espacios, guiones de mas y la falta del prefijo,
+ * porque quien consulta lo esta copiando de un papel. Lo que NO se hace es
+ * adivinar: como el alfabeto no tiene I, L, O, 0 ni 1, un codigo que las trae
+ * esta mal transcripto y no hay a que letra mapearlo sin equivocarse. Es
+ * preferible decir que no se encontro a mostrarle a alguien el reclamo de otro.
+ */
+export function normalizarCodigoReclamo(texto: string): string {
+  const limpio = texto.toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const cuerpo = limpio.startsWith('RC') ? limpio.slice(2) : limpio
+  return PREFIJO_CODIGO + cuerpo
+}
+
+/** El indice unico rechazo el codigo: hay que sortear otro. */
+function esCodigoTomado(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'ConstraintError'
+}
+
+function limpiarContacto(contacto?: ContactoReclamo): ContactoReclamo | undefined {
+  const nombre = contacto?.nombre?.trim()
+  const telefono = contacto?.telefono?.trim()
+  // Un reclamo anonimo entra igual: guardar un contacto vacio solo ensucia.
+  if (!nombre && !telefono) return undefined
+  return { nombre: nombre || undefined, telefono: telefono || undefined }
+}
+
+/**
+ * En que paso del reclamo se traduce el estado de su inspeccion.
+ *
+ * `conforme` significa que no quedo nada por corregir: para el vecino el
+ * tramite termino. Con observaciones o no conforme el problema se constato
+ * pero todavia hay que arreglarlo, y decirle «resuelto» seria exactamente la
+ * disculpa que este circuito viene a evitar.
+ */
+function estadoSegunInspeccion(inspeccion: Inspeccion): EstadoReclamo {
+  switch (inspeccion.estado) {
+    case 'asignada':
+    case 'en_campo':
+      return 'asignado'
+    case 'cerrada':
+      return inspeccion.resultado === 'conforme' ? 'resuelto' : 'inspeccionado'
+    case 'vencida':
+      // Vencida quiere decir que el plazo se paso, no que nadie fue nunca.
+      return 'inspeccionado'
+    default:
+      // `pendiente`: la orden existe pero todavia no la tomo nadie.
+      return 'recibido'
+  }
+}
+
+function fechaDelPaso(estado: EstadoReclamo, inspeccion: Inspeccion): FechaHora {
+  if (estado === 'asignado') return inspeccion.actualizadaEn
+  return inspeccion.ejecutadaEn ?? inspeccion.actualizadaEn
+}
+
+/**
+ * Pone al dia el reclamo contra el estado real de su inspeccion.
+ *
+ * Se hace al consultar y no cuando la inspeccion cambia, para que el vecino
+ * nunca vea un estado viejo por culpa de que alguien se olvido de empujar el
+ * cambio. Los hitos son historia: solo se agregan. Si una inspeccion se
+ * reabre y vuelve para atras, lo que ya se le informo al vecino sigue habiendo
+ * pasado, asi que la linea de tiempo no retrocede.
+ */
+async function ponerAlDia(reclamo: Reclamo): Promise<Reclamo> {
+  if (!reclamo.inspeccionUuid) return reclamo
+
+  const inspeccion = await obtenerInspeccion(reclamo.inspeccionUuid)
+  if (!inspeccion) return reclamo
+
+  const destino = estadoSegunInspeccion(inspeccion)
+  const desdeIndice = ORDEN_ESTADO.indexOf(reclamo.estado)
+  const hastaIndice = ORDEN_ESTADO.indexOf(destino)
+  if (hastaIndice <= desdeIndice) return reclamo
+
+  // Se rellenan tambien los pasos salteados: una inspeccion puede pasar de
+  // pendiente a cerrada de un tiron, y el vecino tiene que ver la escalera
+  // completa, no un hueco.
+  const hitos = [...reclamo.hitos]
+  let anterior = hitos[hitos.length - 1]?.ocurridoEn ?? reclamo.creadoEn
+  for (let i = desdeIndice + 1; i <= hastaIndice; i += 1) {
+    const estado = ORDEN_ESTADO[i]
+    // Ningun paso puede figurar antes que el anterior. Puede pasar cuando se
+    // engancha un reclamo con una inspeccion que ya venia hecha de antes, y una
+    // linea de tiempo que va para atras no se le explica a nadie.
+    const propuesta = fechaDelPaso(estado, inspeccion)
+    const ocurridoEn = propuesta > anterior ? propuesta : anterior
+    hitos.push({ estado, ocurridoEn })
+    anterior = ocurridoEn
+  }
+
+  const actualizado: Reclamo = {
+    ...reclamo,
+    estado: destino,
+    hitos,
+    actualizadoEn: ahora(),
+  }
+  const bd = await abrirBd()
+  await bd.put('reclamos', aDatoPlano(actualizado))
+  return actualizado
+}
+
+async function listarReclamos(filtro?: FiltroReclamos): Promise<Reclamo[]> {
+  const bd = await abrirBd()
+
+  let reclamos = typeof filtro?.estado === 'string'
+    ? await bd.getAllFromIndex('reclamos', 'porEstado', filtro.estado)
+    : await bd.getAll('reclamos')
+
+  if (filtro?.estado) {
+    const estados = new Set(Array.isArray(filtro.estado) ? filtro.estado : [filtro.estado])
+    reclamos = reclamos.filter((r) => estados.has(r.estado))
+  }
+
+  if (filtro?.sinInspeccion) {
+    reclamos = reclamos.filter((r) => !r.inspeccionUuid)
+  }
+
+  // Lo mas nuevo arriba: quien atiende el telefono mira lo que acaba de entrar.
+  return reclamos.sort((a, b) => b.creadoEn.localeCompare(a.creadoEn))
+}
+
+async function obtenerReclamo(id: Uuid): Promise<Reclamo | undefined> {
+  const bd = await abrirBd()
+  return bd.get('reclamos', id)
+}
+
+async function reclamoPorCodigo(codigo: string): Promise<Reclamo | undefined> {
+  const buscado = normalizarCodigoReclamo(codigo)
+  if (buscado.length !== PREFIJO_CODIGO.length + LARGO_CODIGO) return undefined
+  const bd = await abrirBd()
+  return bd.getFromIndex('reclamos', 'porCodigo', buscado)
+}
+
+async function reclamoPorInspeccion(inspeccionUuid: Uuid): Promise<Reclamo | undefined> {
+  const bd = await abrirBd()
+  return bd.getFromIndex('reclamos', 'porInspeccion', inspeccionUuid)
+}
+
+async function registrarReclamo(datos: DatosNuevoReclamo): Promise<Reclamo> {
+  const organismo = await organismoActual()
+  const bd = await abrirBd()
+  const momento = ahora()
+
+  const base: Omit<Reclamo, 'codigo'> = {
+    id: nuevoUuid(),
+    organismoId: organismo.id,
+    descripcion: datos.descripcion.trim(),
+    ubicacion: datos.ubicacion,
+    referencia: datos.referencia?.trim() || undefined,
+    contacto: limpiarContacto(datos.contacto),
+    estado: 'recibido',
+    objetoId: datos.objetoId,
+    hitos: [{ estado: 'recibido', ocurridoEn: momento }],
+    creadoEn: momento,
+    actualizadoEn: momento,
+  }
+
+  // La unicidad la garantiza el indice, no este bucle: se usa `add` (y no
+  // `put`) para que un codigo ya tomado FALLE en vez de pisar el reclamo de
+  // otra persona. Con 31^4 combinaciones la colision es rarisima, pero
+  // «rarisima» no es «imposible» y aca lo que se pisaria es el tramite de
+  // alguien.
+  for (let intento = 0; intento < INTENTOS_CODIGO; intento += 1) {
+    const reclamo: Reclamo = { ...base, codigo: sortearCodigo() }
+    try {
+      await bd.add('reclamos', aDatoPlano(reclamo))
+      return reclamo
+    } catch (error) {
+      if (!esCodigoTomado(error)) throw error
+    }
+  }
+
+  throw new Error('No se pudo generar un código de seguimiento libre')
+}
+
+/**
+ * El enganche del circuito.
+ *
+ * No mueve el estado del reclamo: eso lo deriva `ponerAlDia()` de la
+ * inspeccion. Vincular una inspeccion recien creada, todavia sin asignar, no
+ * cambia nada de lo que ve el vecino, y esta bien que asi sea.
+ *
+ * Quien llame a esto es el responsable de anotar el evento de auditoria, igual
+ * que hace cada vista con las altas.
+ */
+async function vincularInspeccion(id: Uuid, inspeccionUuid: Uuid): Promise<Reclamo> {
+  const bd = await abrirBd()
+  const tx = bd.transaction('reclamos', 'readwrite')
+  const store = tx.objectStore('reclamos')
+
+  const previo = await store.get(id)
+  if (!previo) {
+    await tx.done
+    throw new Error(`No hay ningún reclamo con el id ${id}`)
+  }
+
+  // Idempotente: vincular dos veces la misma inspeccion no agrega nada.
+  if (previo.inspeccionUuid === inspeccionUuid) {
+    await tx.done
+    return previo
+  }
+
+  const actualizado: Reclamo = { ...previo, inspeccionUuid, actualizadoEn: ahora() }
+  await store.put(actualizado)
+  await tx.done
+
+  // El reclamo NO se encola: `ItemCola['tipo']` todavia no tiene un valor
+  // 'reclamo' y ese tipo vive en dominio/tipos.ts. Mientras tanto el reclamo
+  // viaja pegado a su inspeccion, que si esta encolada.
+  return ponerAlDia(actualizado)
+}
+
+async function seguimientoReclamo(codigo: string): Promise<SeguimientoReclamo | undefined> {
+  const encontrado = await reclamoPorCodigo(codigo)
+  if (!encontrado) return undefined
+
+  const reclamo = await ponerAlDia(encontrado)
+
+  let resultado: ResultadoVisible | undefined
+  let plazoHasta: FechaHora | undefined
+
+  if (reclamo.inspeccionUuid) {
+    const inspeccion = await obtenerInspeccion(reclamo.inspeccionUuid)
+    if (inspeccion?.resultado) {
+      resultado = inspeccion.resultado === 'conforme' ? 'sin_hallazgos' : 'requiere_correccion'
+    }
+    if (resultado === 'requiere_correccion') {
+      // Del acta se toma UNICAMENTE la fecha limite. Ni el numero, ni el
+      // encuadre normativo, ni el PDF, ni quien es el responsable notificado:
+      // al vecino le sirve saber hasta cuando hay plazo para que se corrija lo
+      // que el reporto, y nada mas que eso.
+      const acta = await obtenerActa(reclamo.inspeccionUuid)
+      plazoHasta = acta?.plazoSubsanacion
+    }
+  }
+
+  const pasos: PasoSeguimiento[] = ORDEN_ESTADO.map((estado) => {
+    const hito = reclamo.hitos.find((h) => h.estado === estado)
+    return {
+      estado,
+      titulo: TITULO_PASO[estado],
+      cumplido: hito !== undefined,
+      ocurridoEn: hito?.ocurridoEn,
+    }
+  })
+
+  // Se devuelve un objeto armado a mano y no el reclamo entero: asi la vista
+  // publica no tiene forma de mostrar el contacto de quien reclamo, el id
+  // interno ni el uuid de la inspeccion aunque quisiera.
+  return {
+    codigo: reclamo.codigo,
+    descripcion: reclamo.descripcion,
+    ubicacion: reclamo.ubicacion,
+    referencia: reclamo.referencia,
+    estado: reclamo.estado,
+    pasos,
+    hayInspeccion: reclamo.inspeccionUuid !== undefined,
+    resultado,
+    plazoHasta,
+    creadoEn: reclamo.creadoEn,
+    actualizadoEn: reclamo.actualizadoEn,
+  }
+}
+
+const reclamos: RepositorioReclamos = {
+  listar: listarReclamos,
+  obtener: obtenerReclamo,
+  porCodigo: reclamoPorCodigo,
+  porInspeccion: reclamoPorInspeccion,
+  registrar: registrarReclamo,
+  vincularInspeccion,
+  seguimiento: seguimientoReclamo,
+}
+
 // ── Auditoria ─────────────────────────────────────────────────────────
 
 const auditoria: RepositorioAuditoria = {
@@ -401,7 +717,7 @@ const auditoria: RepositorioAuditoria = {
       id: nuevoUuid(),
       ocurridoEn: ahora(),
     }
-    await bd.add('auditoria', completo)
+    await bd.add('auditoria', aDatoPlano(completo))
   },
 
   async historial(entidad, entidadId) {
@@ -511,6 +827,7 @@ export const almacen: Almacen = {
   territorio,
   formularios,
   inspecciones,
+  reclamos,
   auditoria,
   cola,
   prepararDatosIniciales,

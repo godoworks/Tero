@@ -5,6 +5,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { enrutador } from './rutas'
 import { almacen } from './datos/almacen'
+import { revisarVencimientos } from './servicios/reinspeccion'
 import './estilos/base.css'
 
 async function arrancar() {
@@ -13,6 +14,21 @@ async function arrancar() {
   await almacen.prepararDatosIniciales()
 
   createApp(App).use(enrutador).mount('#app')
+
+  // Las reinspecciones se generan al abrir la aplicacion, despues de montar:
+  // el inspector no tiene que esperar a que esto termine para ver su lista.
+  // Es idempotente, asi que correrlo en cada arranque no duplica nada.
+  revisarVencimientos()
+    .then((resumen) => {
+      if (resumen.creadas > 0) {
+        console.info(`Tero: se agendaron ${resumen.creadas} reinspecciones por plazo vencido`)
+      }
+    })
+    .catch((error) => {
+      // Que falle no puede dejar al inspector sin aplicacion: sus tareas del
+      // dia ya estan en pantalla.
+      console.error('Tero: no se pudieron revisar los plazos vencidos', error)
+    })
 }
 
 arrancar().catch((error) => {

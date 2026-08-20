@@ -20,7 +20,7 @@ import type {
   ObjetoInspeccionable, Organismo, Pregunta, Punto, Respuesta,
   ResultadoInspeccion, TipoInspeccion, TipoObjeto, Uuid, Zona,
 } from '@/dominio/tipos'
-import { nuevoUuid, sumarDias } from '@/dominio/utilidades'
+import { sumarDias } from '@/dominio/utilidades'
 
 export interface DatosSemilla {
   organismo: Organismo
@@ -53,6 +53,25 @@ function crearAzar(semilla: number): () => number {
     estado >>>= 0
     return estado / 0x1_0000_0000
   }
+}
+
+/**
+ * Identificadores de la demostracion.
+ *
+ * No se usa `idDemostracion()` a proposito: `crypto.randomUUID()` daria un id
+ * distinto en cada carga, y entonces el «identificador interno» que el acta
+ * imprime cambiaria cada vez que alguien abre la demostracion, y nada podria
+ * guardar una referencia a un objeto sembrado. Como el orden de construccion
+ * es fijo, un contador alcanza para que los ids sean siempre los mismos.
+ *
+ * El prefijo `de5eed00` marca a simple vista que el dato es sembrado y no real.
+ */
+let contadorId = 0
+
+function idDemostracion(): string {
+  contadorId += 1
+  const cola = contadorId.toString(16).padStart(12, '0')
+  return `de5eed00-0000-4000-8000-${cola}`
 }
 
 function entre(azar: () => number, minimo: number, maximo: number): number {
@@ -231,8 +250,8 @@ function pregunta(p: Pregunta): Pregunta {
 
 function formularioAlumbrado(vigenteDesde: FechaHora): FormularioVersion {
   return {
-    id: nuevoUuid(),
-    formularioId: nuevoUuid(),
+    id: idDemostracion(),
+    formularioId: idDemostracion(),
     version: 3,
     titulo: 'Mantenimiento de alumbrado público',
     vigenteDesde,
@@ -336,8 +355,8 @@ function formularioAlumbrado(vigenteDesde: FechaHora): FormularioVersion {
 
 function formularioObra(vigenteDesde: FechaHora): FormularioVersion {
   return {
-    id: nuevoUuid(),
-    formularioId: nuevoUuid(),
+    id: idDemostracion(),
+    formularioId: idDemostracion(),
     version: 2,
     titulo: 'Control de obra en curso',
     vigenteDesde,
@@ -441,8 +460,8 @@ function formularioObra(vigenteDesde: FechaHora): FormularioVersion {
 
 function formularioComercio(vigenteDesde: FechaHora): FormularioVersion {
   return {
-    id: nuevoUuid(),
-    formularioId: nuevoUuid(),
+    id: idDemostracion(),
+    formularioId: idDemostracion(),
     version: 1,
     titulo: 'Habilitación de comercio',
     vigenteDesde,
@@ -603,23 +622,26 @@ const INSPECTORA = 'ines.rodriguez'
 const INSPECTOR_SUPLENTE = 'martin.silva'
 
 export function construirSemilla(): DatosSemilla {
+  // Reiniciar el contador es lo que hace que dos construcciones den exactamente
+  // los mismos identificadores.
+  contadorId = 0
   const azar = crearAzar(20260420)
 
   const organismo: Organismo = {
-    id: nuevoUuid(),
+    id: idDemostracion(),
     nombre: 'Intendencia Demostración',
     tipo: 'intendencia',
   }
 
   const zonas: Zona[] = DEFINICIONES_ZONA.map((d) => ({
-    id: nuevoUuid(),
+    id: idDemostracion(),
     organismoId: organismo.id,
     nombre: d.nombre,
     contorno: contornoDe(d.recuadro),
   }))
 
   const tiposObjeto: TipoObjeto[] = DEFINICIONES_TIPO_OBJETO.map((d) => ({
-    id: nuevoUuid(),
+    id: idDemostracion(),
     organismoId: organismo.id,
     clave: d.clave,
     nombre: d.nombre,
@@ -649,7 +671,7 @@ export function construirSemilla(): DatosSemilla {
       const direccion = `${elegir(azar, definicionZona.calles)} ${Math.round(entre(azar, 120, 2480))}`
 
       const objeto: ObjetoInspeccionable = {
-        id: nuevoUuid(),
+        id: idDemostracion(),
         organismoId: organismo.id,
         tipoObjetoId: tipo.id,
         codigo: `${definicion.prefijo}-${String(i + 1).padStart(4, '0')}`,
@@ -680,7 +702,7 @@ export function construirSemilla(): DatosSemilla {
     tiposObjeto.find((t) => t.clave === clave)!.id
 
   const tiAlumbrado: TipoInspeccion = {
-    id: nuevoUuid(),
+    id: idDemostracion(),
     organismoId: organismo.id,
     nombre: 'Mantenimiento de alumbrado',
     direccionResponsable: 'Dirección de Alumbrado Público',
@@ -689,7 +711,7 @@ export function construirSemilla(): DatosSemilla {
     tipoObjetoIds: [idTipoObjeto('luminaria')],
   }
   const tiObra: TipoInspeccion = {
-    id: nuevoUuid(),
+    id: idDemostracion(),
     organismoId: organismo.id,
     nombre: 'Control de obra',
     direccionResponsable: 'Dirección de Obras',
@@ -698,7 +720,7 @@ export function construirSemilla(): DatosSemilla {
     tipoObjetoIds: [idTipoObjeto('obra')],
   }
   const tiComercio: TipoInspeccion = {
-    id: nuevoUuid(),
+    id: idDemostracion(),
     organismoId: organismo.id,
     nombre: 'Habilitación de comercio',
     direccionResponsable: 'Dirección de Habilitaciones y Contralor',
@@ -727,7 +749,7 @@ export function construirSemilla(): DatosSemilla {
     detalle?: string,
   ): void => {
     auditoria.push({
-      id: nuevoUuid(),
+      id: idDemostracion(),
       organismoId: organismo.id,
       entidad: 'inspeccion',
       entidadId,
@@ -794,7 +816,7 @@ export function construirSemilla(): DatosSemilla {
     const creadaEn = sumarDias(momento, -3)
 
     const inspeccion: Inspeccion = {
-      uuid: nuevoUuid(),
+      uuid: idDemostracion(),
       organismoId: organismo.id,
       objetoId: plan.objeto.id,
       tipoInspeccionId: plan.tipo.id,

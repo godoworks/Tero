@@ -262,7 +262,7 @@ export interface EventoAuditoria {
  */
 export interface ItemCola {
   id: number
-  tipo: 'inspeccion' | 'respuesta' | 'evidencia' | 'firma' | 'objeto'
+  tipo: 'inspeccion' | 'respuesta' | 'evidencia' | 'firma' | 'objeto' | 'reclamo'
   /** uuid de la entidad, para que el servidor descarte duplicados. */
   entidadUuid: Uuid
   encoladoEn: FechaHora

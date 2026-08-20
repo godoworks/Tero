@@ -10,6 +10,14 @@ import { almacen } from '@/datos/almacen'
 const ruta = useRoute()
 const titulo = computed(() => (ruta.meta.titulo as string) ?? 'Tero')
 
+/**
+ * Las pantallas del canal ciudadano las usa un vecino, no personal municipal.
+ * No corresponde mostrarle la navegacion del inspector ni cuantos cambios
+ * quedaron sin sincronizar: no son suyos y no puede hacer nada con esa
+ * informacion.
+ */
+const esPublico = computed(() => ruta.meta.publico === true)
+
 const hayConexion = ref(navigator.onLine)
 const pendientes = ref(0)
 
@@ -61,7 +69,7 @@ onUnmounted(() => {
 
       <div class="senales">
         <span
-          v-if="pendientes > 0"
+          v-if="pendientes > 0 && !esPublico"
           class="senal senal--pendiente"
           :title="pendientes + ' cambios esperando para sincronizar'"
         >
@@ -81,7 +89,7 @@ onUnmounted(() => {
       <RouterView />
     </main>
 
-    <nav class="pie" aria-label="Navegación principal">
+    <nav v-if="!esPublico" class="pie" aria-label="Navegación principal">
       <RouterLink to="/tareas" class="pie-enlace">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <path d="M4 6h16M4 12h16M4 18h10" />
@@ -93,6 +101,13 @@ onUnmounted(() => {
           <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14" />
         </svg>
         <span>Mapa</span>
+      </RouterLink>
+      <RouterLink to="/planificacion" class="pie-enlace">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 2v3M16 2v3M3 8h18M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
+          <path d="M9 13l2 2 4-4" />
+        </svg>
+        <span>Planificar</span>
       </RouterLink>
       <RouterLink to="/tablero" class="pie-enlace">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -160,7 +175,7 @@ onUnmounted(() => {
   right: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   height: calc(var(--alto-pie) + var(--seguro-abajo));
   padding-bottom: var(--seguro-abajo);
   background: var(--superficie);

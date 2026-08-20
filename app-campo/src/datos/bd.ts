@@ -13,6 +13,7 @@
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import type { Reclamo } from './contratos'
 import type {
   Acta, Evidencia, EventoAuditoria, Firma, FormularioVersion, Inspeccion,
   ItemCola, ObjetoInspeccionable, Organismo, Respuesta, TipoInspeccion,
@@ -69,18 +70,38 @@ export interface EsquemaTero extends DBSchema {
   }
   cola: { key: number; value: ItemCola }
   correlativos: { key: string; value: Correlativo }
+  /**
+   * Reclamos del vecino. Se buscan casi siempre por el codigo corto que la
+   * persona tiene anotado, no por su id.
+   */
+  reclamos: {
+    key: string
+    value: Reclamo
+    indexes: { porCodigo: string; porEstado: string; porInspeccion: string }
+  }
 }
 
 export type BdTero = IDBPDatabase<EsquemaTero>
 
 export const NOMBRE_BD = 'tero'
-export const VERSION_BD = 1
+
+/**
+ * Version del esquema.
+ *
+ *   1 — esquema inicial.
+ *   2 — almacen `reclamos`.
+ *
+ * Subir esto NO reinicia nada. Cada escalon se aplica solo si el dispositivo
+ * viene de mas atras, de modo que un telefono con inspecciones a medio hacer
+ * las conserva. Ver `abrirBd`.
+ */
+export const VERSION_BD = 2
 
 /** Todos los almacenes, en el orden en que se crean. Lo usa `reiniciar()`. */
 export const ALMACENES = [
   'organismos', 'zonas', 'tiposObjeto', 'objetos', 'formularioVersiones',
   'tiposInspeccion', 'inspecciones', 'respuestas', 'evidencias', 'firmas',
-  'actas', 'auditoria', 'cola', 'correlativos',
+  'actas', 'auditoria', 'cola', 'correlativos', 'reclamos',
 ] as const
 
 let conexion: Promise<BdTero> | undefined
@@ -93,8 +114,19 @@ let conexion: Promise<BdTero> | undefined
 export function abrirBd(): Promise<BdTero> {
   if (!conexion) {
     conexion = openDB<EsquemaTero>(NOMBRE_BD, VERSION_BD, {
+      /**
+       * Migracion incremental y acumulativa: cada escalon se aplica en orden
+       * y solo si el dispositivo no lo tiene. Una base recien creada entra con
+       * `versionAnterior === 0` y recorre todos los escalones; una que venia de
+       * la version 1 recorre solo el segundo y conserva lo que ya tenia dentro.
+       *
+       * Nunca se borra y se vuelve a sembrar aca. La demostracion puede estar
+       * abierta en el telefono de alguien con trabajo de campo sin sincronizar,
+       * y ese trabajo no tiene copia en ningun otro lado.
+       */
       upgrade(bd, versionAnterior) {
         if (versionAnterior < 1) crearEsquemaV1(bd)
+        if (versionAnterior < 2) crearEsquemaV2(bd)
       },
       blocked() {
         // Otra pestaña con la version vieja impide migrar. No hay nada que
@@ -149,4 +181,24 @@ function crearEsquemaV1(bd: BdTero): void {
   bd.createObjectStore('cola', { keyPath: 'id', autoIncrement: true })
 
   bd.createObjectStore('correlativos', { keyPath: 'clave' })
+}
+
+/**
+ * Version 2: los reclamos del vecino.
+ *
+ * Solo agrega un almacen nuevo. No toca ni lee ninguno de los anteriores, que
+ * es lo que hace que la migracion sea segura sobre un dispositivo con datos.
+ */
+function crearEsquemaV2(bd: BdTero): void {
+  const reclamos = bd.createObjectStore('reclamos', { keyPath: 'id' })
+
+  // `unique` no es decorativo: es la base de datos, y no la aplicacion, quien
+  // garantiza que dos vecinos no se lleven anotado el mismo codigo. Si el
+  // generador tuviera una colision, la escritura falla y se reintenta.
+  reclamos.createIndex('porCodigo', 'codigo', { unique: true })
+  // La bandeja de la intendencia entra por estado.
+  reclamos.createIndex('porEstado', 'estado')
+  // Para recorrer el circuito al reves: de la inspeccion al reclamo que la
+  // origino. Los reclamos sin inspeccion simplemente no entran al indice.
+  reclamos.createIndex('porInspeccion', 'inspeccionUuid')
 }

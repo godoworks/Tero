@@ -50,6 +50,27 @@ const rutas: RouteRecordRaw[] = [
     props: true,
     meta: { titulo: 'Acta' },
   },
+  // Canal ciudadano. Son las unicas pantallas que no usa personal municipal,
+  // asi que quedan fuera de la navegacion del inspector: se llega por enlace
+  // directo, que es como el vecino las va a recibir.
+  {
+    path: '/reclamo/nuevo',
+    name: 'reclamo-nuevo',
+    component: () => import('@/vistas/ReclamoNuevo.vue'),
+    meta: { titulo: 'Reportar un problema', publico: true },
+  },
+  {
+    path: '/reclamo/estado',
+    name: 'reclamo-estado',
+    component: () => import('@/vistas/ReclamoEstado.vue'),
+    meta: { titulo: 'Seguimiento del reclamo', publico: true },
+  },
+  {
+    path: '/planificacion',
+    name: 'planificacion',
+    component: () => import('@/vistas/Planificacion.vue'),
+    meta: { titulo: 'Planificación' },
+  },
   {
     path: '/tablero',
     name: 'tablero',
