@@ -10,7 +10,12 @@ import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-rou
  */
 
 const rutas: RouteRecordRaw[] = [
-  { path: '/', redirect: '/tareas' },
+  {
+    path: '/',
+    name: 'portada',
+    component: () => import('@/vistas/Portada.vue'),
+    meta: { titulo: 'Tero', publico: true },
+  },
   {
     path: '/tareas',
     name: 'tareas',

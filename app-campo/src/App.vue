@@ -54,7 +54,7 @@ onUnmounted(() => {
 <template>
   <div class="armazon">
     <header class="barra">
-      <div class="marca" aria-hidden="true">
+      <RouterLink to="/" class="marca" aria-label="Volver al inicio">
         <svg viewBox="0 0 64 64" width="26" height="26">
           <circle cx="32" cy="32" r="30" fill="none" stroke="currentColor" stroke-width="3" />
           <path d="M14 44c0-8 5-14 13-14 6 0 10 3 12 7l-2 9c-3 2-7 3-11 3-7 0-12-2-12-5z" fill="currentColor" />
@@ -63,7 +63,7 @@ onUnmounted(() => {
           <path d="M38 25l11 3-11 3z" fill="currentColor" />
           <circle cx="33" cy="25" r="2" fill="var(--tinta)" />
         </svg>
-      </div>
+      </RouterLink>
 
       <h1 class="titulo">{{ titulo }}</h1>
 
@@ -139,7 +139,7 @@ onUnmounted(() => {
   color: var(--papel);
 }
 
-.marca { display: flex; flex: none; }
+.marca { display: flex; flex: none; color: inherit; }
 
 .titulo {
   flex: 1;
