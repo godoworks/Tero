@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: 2026 GoDoWorks
+# SPDX-License-Identifier: Apache-2.0
+#
+# La especificación de la API se publica bajo Apache-2.0, a diferencia del resto
+# del proyecto: cualquiera tiene que poder integrarse con Tero sin que el copyleft
+# alcance su propio sistema.
+
+openapi: 3.1.0
+
+info:
+  title: API de Tero
+  version: 0.1.0-borrador
+  summary: Inspecciones municipales
+  description: |
+    Estado: **borrador**. Los caminos se definen junto con el esqueleto del
+    backend (ver ROADMAP, etapa 1). Este archivo fija desde ahora las decisiones
+    de diseño que después son caras de cambiar.
+
+    **Sincronización.** El alta de una inspección es idempotente por el campo
+    `uuid` que genera el dispositivo. Reenviar la misma inspección devuelve la
+    que ya existe, con 200 en vez de 201. Es lo que permite que el celular
+    reintente sin miedo cuando la conexión se corta a mitad de camino.
+
+    **Territorio.** Las geometrías van y vienen en GeoJSON, con coordenadas en
+    WGS 84 (EPSG:4326).
+
+    **Multi-organismo.** El organismo se deduce del token, nunca se pasa por
+    parámetro: un usuario no puede leer ni escribir datos de otro gobierno local.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  contact:
+    name: Tero
+    url: https://github.com/godoworks/Tero
+
+servers:
+  - url: https://{instalacion}/api/v1
+    description: Instalación de cada gobierno local
+    variables:
+      instalacion:
+        default: localhost:8000
+
+security:
+  - openId: []
+
+components:
+  securitySchemes:
+    openId:
+      type: openIdConnect
+      openIdConnectUrl: /realms/tero/.well-known/openid-configuration
+
+paths: {}

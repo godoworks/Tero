@@ -1,0 +1,16 @@
+version = 1
+SPDX-PackageName = "Tero"
+SPDX-PackageSupplier = "GoDoWorks <https://godoworks.com>"
+SPDX-PackageDownloadLocation = "https://github.com/godoworks/Tero"
+
+[[annotations]]
+path = [".gitignore", "docs/.nojekyll"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 GoDoWorks"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "LICENSE"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2007 Free Software Foundation, Inc."
+SPDX-License-Identifier = "AGPL-3.0-or-later"

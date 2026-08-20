@@ -1,0 +1,36 @@
+# Dependencias
+/vendor/
+/node_modules/
+
+# Configuración local
+.env
+.env.local
+.env.*.local
+
+# Compilados y caché
+/public/build/
+/public/hot
+/storage/*.key
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+/storage/logs/*
+/bootstrap/cache/*
+*.cache
+.phpunit.result.cache
+
+# Datos locales de contenedores
+/docker/datos/
+/docker/postgres/
+/docker/minio/
+
+# Herramientas y editores
+/.idea/
+/.vscode/
+*.swp
+*.swo
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini

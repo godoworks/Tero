@@ -1,0 +1,91 @@
+# SPDX-FileCopyrightText: 2026 GoDoWorks
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Entorno de desarrollo de Tero.
+#
+#   cp .env.example .env
+#   docker compose up -d
+#
+# Levanta la infraestructura: base de datos con PostGIS, caché, almacenamiento de
+# archivos e identidad. El servicio de la aplicación se agrega junto con el
+# esqueleto del backend (ver ROADMAP.md, etapa 1).
+
+name: tero
+
+services:
+
+  # Base de datos territorial. PostGIS es lo que permite guardar y consultar
+  # dónde está cada objeto inspeccionable.
+  base:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ${DB_USUARIO:-tero}
+      POSTGRES_PASSWORD: ${DB_CLAVE:-tero_local}
+      POSTGRES_DB: ${DB_NOMBRE:-tero}
+    ports:
+      - "${DB_PUERTO:-5432}:5432"
+    volumes:
+      - base_datos:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USUARIO:-tero} -d ${DB_NOMBRE:-tero}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Caché y cola de trabajos. Valkey, no Redis: desde 2024 Redis dejó de tener
+  # una licencia aprobada por la OSI y no puede formar parte de Tero.
+  cache:
+    image: valkey/valkey:8-alpine
+    command: valkey-server --save 60 1 --loglevel warning
+    ports:
+      - "${CACHE_PUERTO:-6379}:6379"
+    volumes:
+      - cache_datos:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Almacenamiento de fotos, firmas y actas en PDF.
+  archivos:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${ARCHIVOS_USUARIO:-tero}
+      MINIO_ROOT_PASSWORD: ${ARCHIVOS_CLAVE:-tero_local_2026}
+    ports:
+      - "${ARCHIVOS_PUERTO:-9000}:9000"
+      - "${ARCHIVOS_CONSOLA_PUERTO:-9001}:9001"
+    volumes:
+      - archivos_datos:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Identidad y permisos. Habla OpenID Connect, que es lo que después permite
+  # conectar con ID Uruguay sin reescribir la autenticación.
+  identidad:
+    image: quay.io/keycloak/keycloak:26.1
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${IDENTIDAD_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${IDENTIDAD_CLAVE:-tero_local}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://base:5432/keycloak
+      KC_DB_USERNAME: ${DB_USUARIO:-tero}
+      KC_DB_PASSWORD: ${DB_CLAVE:-tero_local}
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "${IDENTIDAD_PUERTO:-8080}:8080"
+    depends_on:
+      base:
+        condition: service_healthy
+
+volumes:
+  base_datos:
+  cache_datos:
+  archivos_datos:
