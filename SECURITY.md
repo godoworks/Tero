@@ -11,9 +11,10 @@ técnico: puede exponer información de vecinos o invalidar un acta.
 
 ## Cómo reportar
 
-**No abras un issue público.** Usá el reporte privado de GitHub:
+**No abras un issue público.** Hay dos canales privados:
 
-> Repositorio → pestaña **Security** → **Report a vulnerability**
+- Reporte privado de GitHub: repositorio → pestaña **Security** → **Report a vulnerability**
+- Correo: **info@godoworks.com**
 
 Contanos qué encontraste, cómo reproducirlo y, si podés, qué impacto le ves.
 
