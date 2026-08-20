@@ -1,0 +1,730 @@
+<meta charset="utf-8">
+<title>Tero</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Literata:opsz,wght@7..72,400;7..72,500;7..72,600&display=swap">
+
+<style>
+  :root {
+    --tinta:      #12212E;
+    --tinta-2:    #1B2E3D;
+    --papel:      #F2F4F2;
+    --superficie: #FFFFFF;
+    --rojo:       #C6362C;
+    --rojo-suave: #F6E6E3;
+    --verde:      #2F5D4E;
+    --apagado:    #5C6B72;
+    --borde:      #D8DDD9;
+    --filete:     #E6EAE6;
+
+    --banda:       #12212E;
+    --banda-ink:   #F2F4F2;
+    --banda-mute:  #A9B8BF;
+    --banda-linea: rgba(255, 255, 255, 0.10);
+
+    --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --cuerpo:  "Literata", Georgia, "Times New Roman", serif;
+
+    --col: 68ch;
+    --paso: clamp(3.5rem, 7vw, 6rem);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --tinta:      #E7ECE8;
+      --tinta-2:    #C3CDC7;
+      --papel:      #0E1A21;
+      --superficie: #15242D;
+      --rojo:       #E8695C;
+      --rojo-suave: #2C1B1A;
+      --verde:      #6FBF9B;
+      --apagado:    #93A3A8;
+      --borde:      #273A44;
+      --filete:     #1E2F39;
+
+      --banda:       #182A34;
+      --banda-ink:   #E7ECE8;
+      --banda-mute:  #9AAAB1;
+      --banda-linea: rgba(255, 255, 255, 0.08);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --tinta:      #E7ECE8;
+    --tinta-2:    #C3CDC7;
+    --papel:      #0E1A21;
+    --superficie: #15242D;
+    --rojo:       #E8695C;
+    --rojo-suave: #2C1B1A;
+    --verde:      #6FBF9B;
+    --apagado:    #93A3A8;
+    --borde:      #273A44;
+    --filete:     #1E2F39;
+
+    --banda:       #182A34;
+    --banda-ink:   #E7ECE8;
+    --banda-mute:  #9AAAB1;
+    --banda-linea: rgba(255, 255, 255, 0.08);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--papel);
+    color: var(--tinta);
+    font-family: var(--cuerpo);
+    font-size: 1.0625rem;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .env { max-width: var(--col); margin-inline: auto; padding-inline: 1.5rem; }
+  .env-ancho { max-width: 78rem; margin-inline: auto; padding-inline: 1.5rem; }
+
+  h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.12; }
+
+  .etiqueta {
+    font-family: var(--display);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--apagado);
+  }
+
+  a { color: inherit; }
+  :focus-visible { outline: 2.5px solid var(--rojo); outline-offset: 3px; border-radius: 2px; }
+
+  /* ── Portada ─────────────────────────────────────────── */
+
+  .portada { padding-block: clamp(3rem, 7vw, 5.5rem) var(--paso); }
+
+  .portada-int { display: flex; flex-direction: column; gap: 1.75rem; }
+
+  .marca { display: flex; align-items: center; gap: 1.1rem; }
+  .marca svg { width: 68px; height: 68px; flex: none; }
+
+  .marca-txt { display: flex; flex-direction: column; gap: 0.15rem; }
+
+  .nombre {
+    font-family: var(--display);
+    font-size: clamp(3rem, 9vw, 4.5rem);
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 0.9;
+  }
+
+  .lema {
+    font-family: var(--display);
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--rojo);
+  }
+
+  .bajada {
+    font-size: clamp(1.25rem, 2.6vw, 1.55rem);
+    line-height: 1.45;
+    max-width: 34ch;
+    margin: 0;
+  }
+
+  .bajada strong { font-weight: 600; }
+
+  .sumario {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 1.25rem 2rem;
+    margin: 0;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--borde);
+  }
+  .sumario dt { margin: 0 0 0.15rem; }
+  .sumario dd {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Secciones ───────────────────────────────────────── */
+
+  .seccion { padding-block: var(--paso); border-top: 1px solid var(--filete); }
+
+  .cabecera { display: flex; flex-direction: column; gap: 0.7rem; margin-bottom: 2.5rem; }
+
+  .cabecera h2 {
+    font-size: clamp(1.75rem, 4vw, 2.35rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .cabecera p { margin: 0; color: var(--apagado); max-width: 56ch; }
+
+  /* ── Punto de partida ────────────────────────────────── */
+
+  .partida { display: flex; flex-direction: column; gap: 0; }
+
+  .partida li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0 1.1rem;
+    padding-block: 1.15rem;
+    border-bottom: 1px solid var(--filete);
+  }
+
+  .partida { list-style: none; margin: 0; padding: 0; }
+  .partida li:first-child { border-top: 1px solid var(--filete); }
+
+  .marca-x { color: var(--rojo); font-family: var(--display); font-weight: 700; line-height: 1.5; }
+
+  .partida b { font-family: var(--display); font-weight: 600; display: block; }
+  .partida span { color: var(--apagado); }
+
+  /* ── Capacidades ─────────────────────────────────────── */
+
+  .grilla {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr));
+    gap: 1px;
+    background: var(--filete);
+    border: 1px solid var(--filete);
+  }
+
+  .celda {
+    background: var(--superficie);
+    padding: 1.6rem 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .celda h3 {
+    font-size: 1.0625rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: baseline;
+    gap: 0.55rem;
+  }
+
+  .celda h3::before {
+    content: "";
+    width: 7px; height: 7px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--rojo);
+    transform: translateY(-1px);
+  }
+
+  .celda p { margin: 0; font-size: 0.9688rem; line-height: 1.6; color: var(--apagado); }
+
+  /* ── Circuito ────────────────────────────────────────── */
+
+  .circuito { list-style: none; margin: 0; padding: 0; counter-reset: paso; }
+
+  .circuito li {
+    display: grid;
+    grid-template-columns: 3.25rem 1fr;
+    gap: 0 1.25rem;
+    padding-block: 1.4rem;
+    border-bottom: 1px solid var(--filete);
+    align-items: start;
+  }
+
+  .circuito li:first-child { border-top: 1px solid var(--filete); }
+
+  .circuito li::before {
+    counter-increment: paso;
+    content: counter(paso, decimal-leading-zero);
+    font-family: var(--display);
+    font-size: 1.375rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.03em;
+    color: var(--rojo);
+    line-height: 1.1;
+  }
+
+  .circuito b { font-family: var(--display); font-weight: 600; font-size: 1.0625rem; display: block; margin-bottom: 0.15rem; }
+  .circuito span { color: var(--apagado); font-size: 0.9688rem; }
+
+  /* ── Beneficios ──────────────────────────────────────── */
+
+  .beneficios { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1.75rem 2.5rem; }
+
+  .beneficios b { font-family: var(--display); font-weight: 600; display: block; margin-bottom: 0.25rem; }
+  .beneficios span { color: var(--apagado); font-size: 0.9688rem; }
+  .beneficios li { border-left: 2px solid var(--verde); padding-left: 1rem; }
+
+  /* ── Licencia ────────────────────────────────────────── */
+
+  .licencia {
+    background: var(--superficie);
+    border: 1px solid var(--borde);
+    padding: clamp(1.75rem, 4vw, 2.75rem);
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
+  }
+
+  .sello {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    align-self: flex-start;
+    border: 2px solid var(--rojo);
+    color: var(--rojo);
+    padding: 0.55rem 1rem;
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 1.0625rem;
+    letter-spacing: 0.02em;
+  }
+
+  .sello small { font-weight: 600; font-size: 0.6875rem; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.85; }
+
+  .licencia ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.9rem; }
+
+  .licencia li { display: grid; grid-template-columns: auto 1fr; gap: 0.85rem; align-items: start; }
+
+  .tilde { color: var(--verde); font-family: var(--display); font-weight: 700; line-height: 1.6; }
+
+  .licencia .nota { margin: 0; font-size: 0.9375rem; color: var(--apagado); border-top: 1px solid var(--filete); padding-top: 1.4rem; }
+
+  /* ── Temporada ───────────────────────────────────────── */
+
+  .temporada { background: var(--banda); color: var(--banda-ink); border-top-color: var(--banda); }
+  .temporada .cabecera h2 { color: var(--banda-ink); }
+  .temporada .cabecera p { color: var(--banda-mute); }
+  .temporada .etiqueta { color: var(--banda-mute); }
+  .temporada .grilla { background: var(--banda-linea); border-color: var(--banda-linea); }
+  .temporada .celda { background: var(--banda); }
+  .temporada .celda h3 { color: var(--banda-ink); }
+  .temporada .celda p { color: var(--banda-mute); }
+
+  /* ── Autoría ─────────────────────────────────────────── */
+
+  .cifras { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+
+  .cifra strong {
+    display: block;
+    font-family: var(--display);
+    font-size: clamp(1.75rem, 4vw, 2.25rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    margin-bottom: 0.35rem;
+  }
+
+  .cifra span { font-size: 0.9375rem; color: var(--apagado); }
+
+  /* ── Cierre ──────────────────────────────────────────── */
+
+  .pedido { list-style: none; margin: 0 0 2rem; padding: 0; display: flex; flex-direction: column; gap: 1rem; }
+  .pedido li { display: grid; grid-template-columns: auto 1fr; gap: 0.85rem; align-items: start; }
+  .pedido b { font-family: var(--display); font-weight: 600; }
+
+  .fechas { display: flex; flex-wrap: wrap; gap: 1.5rem 3rem; border-top: 1px solid var(--borde); padding-top: 1.5rem; }
+  .fechas div { display: flex; flex-direction: column; gap: 0.2rem; }
+  .fechas b { font-family: var(--display); font-weight: 700; font-size: 1.0625rem; font-variant-numeric: tabular-nums; }
+
+  .pie {
+    border-top: 1px solid var(--borde);
+    padding-block: 2.5rem 3.5rem;
+    color: var(--apagado);
+    font-size: 0.875rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 2rem;
+    align-items: center;
+  }
+
+  .pie svg { width: 26px; height: 26px; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .portada-int > * { animation: subir 0.6s cubic-bezier(0.16, 0.84, 0.44, 1) backwards; }
+    .portada-int > *:nth-child(2) { animation-delay: 0.07s; }
+    .portada-int > *:nth-child(3) { animation-delay: 0.14s; }
+    @keyframes subir { from { opacity: 0; transform: translateY(12px); } }
+  }
+</style>
+
+<!-- ══ Portada ══════════════════════════════════════════ -->
+<header class="portada">
+  <div class="env portada-int">
+
+    <div class="marca">
+      <svg viewBox="0 0 64 64" role="img" aria-label="Marca de Tero: un tero con su grito de alarma">
+        <circle cx="32" cy="32" r="30" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        <path d="M14 44c0-8 5-14 13-14 6 0 10 3 12 7l-2 9c-3 2-7 3-11 3-7 0-12-2-12-5z" fill="currentColor"/>
+        <circle cx="30" cy="27" r="8.5" fill="currentColor"/>
+        <path d="M25 20c-3-3-7-5-11-5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+        <path d="M38 25l11 3-11 3z" fill="currentColor"/>
+        <circle cx="33" cy="25" r="1.9" fill="var(--papel)"/>
+        <path d="M25 45l-2 11M33 45l2 11" stroke="var(--rojo)" stroke-width="2.6" stroke-linecap="round"/>
+        <path d="M52 22a11 11 0 010 12M57 17a19 19 0 010 22" fill="none" stroke="var(--rojo)" stroke-width="2.4" stroke-linecap="round" opacity="0.9"/>
+      </svg>
+      <div class="marca-txt">
+        <div class="nombre">Tero</div>
+        <div class="lema">El tero avisa</div>
+      </div>
+    </div>
+
+    <p class="bajada">
+      Plataforma abierta de <strong>inspecciones municipales</strong>. Todo lo que hoy vive en papel
+      —la recorrida, el acta, el plazo, la reinspección— pasa al celular del inspector y al mapa de la intendencia.
+    </p>
+
+    <dl class="sumario">
+      <div>
+        <dt class="etiqueta">Código</dt>
+        <dd>Abierto y auditable</dd>
+      </div>
+      <div>
+        <dt class="etiqueta">Licencia</dt>
+        <dd>AGPL-3.0</dd>
+      </div>
+      <div>
+        <dt class="etiqueta">Programa</dt>
+        <dd>GovTech Connect · CIIAR Uruguay</dd>
+      </div>
+      <div>
+        <dt class="etiqueta">Ciudad contraparte</dt>
+        <dd>Intendencia a revisar</dd>
+      </div>
+    </dl>
+
+  </div>
+</header>
+
+<!-- ══ Punto de partida ═════════════════════════════════ -->
+<section class="seccion">
+  <div class="env">
+    <div class="cabecera">
+      <span class="etiqueta">El punto de partida</span>
+      <h2>Cuatro cosas que pasan hoy en casi toda intendencia</h2>
+    </div>
+
+    <ul class="partida">
+      <li>
+        <span class="marca-x" aria-hidden="true">×</span>
+        <div>
+          <b>La recorrida se anota en papel</b>
+          <span>Lo que vio el inspector queda en una carpeta, no en un sistema. Cuando se necesita, hay que ir a buscarlo.</span>
+        </div>
+      </li>
+      <li>
+        <span class="marca-x" aria-hidden="true">×</span>
+        <div>
+          <b>El reclamo del vecino se pierde en el camino</b>
+          <span>Nadie puede decir en qué quedó, quién lo atendió ni cuándo. El vecino vuelve a llamar y se empieza de cero.</span>
+        </div>
+      </li>
+      <li>
+        <span class="marca-x" aria-hidden="true">×</span>
+        <div>
+          <b>No hay número que mostrar</b>
+          <span>Cuántas inspecciones se hicieron, cuánto se demoró en responder, qué zona quedó sin cubrir: hoy no hay forma de contestarlo con datos.</span>
+        </div>
+      </li>
+      <li>
+        <span class="marca-x" aria-hidden="true">×</span>
+        <div>
+          <b>La temporada desborda</b>
+          <span>En verano el volumen se multiplica, entran inspectores de refuerzo y las herramientas siguen siendo las mismas.</span>
+        </div>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- ══ Qué hace ═════════════════════════════════════════ -->
+<section class="seccion">
+  <div class="env-ancho">
+    <div class="cabecera">
+      <span class="etiqueta">Qué hace Tero</span>
+      <h2>Ocho cosas, y todas se ven el primer día</h2>
+      <p>No es un sistema para configurar durante un año. Es una herramienta que el inspector abre y usa.</p>
+    </div>
+
+    <div class="grilla">
+      <div class="celda">
+        <h3>Se inspecciona desde el celular</h3>
+        <p>El inspector abre el navegador del teléfono y completa la recorrida ahí mismo. No hay que instalar ninguna aplicación ni pedir permiso a nadie.</p>
+      </div>
+      <div class="celda">
+        <h3>Funciona sin señal</h3>
+        <p>En una obra, en la costa o donde no llega la cobertura, la inspección se completa igual. Cuando vuelve la señal, se sincroniza sola.</p>
+      </div>
+      <div class="celda">
+        <h3>Fotos y firma en el lugar</h3>
+        <p>Cada foto queda con su ubicación y su hora exacta. El inspeccionado firma en la pantalla del teléfono y se lleva su copia.</p>
+      </div>
+      <div class="celda">
+        <h3>El acta sale sola</h3>
+        <p>Al cerrar la inspección se emite el acta en PDF, numerada, con el plazo de subsanación ya calculado según el tipo de falta.</p>
+      </div>
+      <div class="celda">
+        <h3>La reinspección se agenda sola</h3>
+        <p>Vencido el plazo, el caso vuelve a la lista del inspector. No depende de que alguien se acuerde ni de una planilla aparte.</p>
+      </div>
+      <div class="celda">
+        <h3>Todo el territorio en un mapa</h3>
+        <p>Comercios, obras, luminarias, contenedores, señalización, paradores: cada cosa inspeccionable con su ficha, su ubicación y su historia completa.</p>
+      </div>
+      <div class="celda">
+        <h3>Un tablero que contesta preguntas</h3>
+        <p>Cuántas inspecciones, en cuánto tiempo, en qué zona, con qué resultado. En pantalla, sin tener que pedirle un informe a nadie.</p>
+      </div>
+      <div class="celda">
+        <h3>El vecino sabe en qué anda lo suyo</h3>
+        <p>El reclamo que entra queda enganchado a la inspección que lo resuelve. Se puede responder con un estado, no con una disculpa.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Circuito ═════════════════════════════════════════ -->
+<section class="seccion">
+  <div class="env">
+    <div class="cabecera">
+      <span class="etiqueta">Cómo funciona en la calle</span>
+      <h2>Un caso, de punta a punta</h2>
+      <p>Cinco pasos. El mismo recorrido para una obra sin permiso, un contenedor roto o un local sin habilitación.</p>
+    </div>
+
+    <ol class="circuito">
+      <li>
+        <div>
+          <b>Entra el caso</b>
+          <span>Un reclamo del vecino, una recorrida planificada o una inspección de oficio. Los tres caminos terminan en el mismo lugar.</span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <b>Se asigna</b>
+          <span>Por zona, por cuadrilla y por prioridad. El inspector ve su lista del día ordenada, no un montón de papeles sueltos.</span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <b>Se inspecciona</b>
+          <span>Checklist propio de cada dirección, fotos, observaciones y firma. Con señal o sin señal, en el lugar y en el momento.</span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <b>Se emite el acta</b>
+          <span>PDF numerado, con las faltas constatadas, el plazo para subsanar y la notificación al inspeccionado.</span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <b>Se cierra o se vuelve</b>
+          <span>Si se subsanó, cierra. Si venció el plazo, la reinspección aparece sola. Todo queda en el historial del objeto, para siempre.</span>
+        </div>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ══ Qué gana la intendencia ══════════════════════════ -->
+<section class="seccion">
+  <div class="env-ancho">
+    <div class="cabecera">
+      <span class="etiqueta">Qué gana la intendencia</span>
+      <h2>Lo que queda después del piloto</h2>
+    </div>
+
+    <ul class="beneficios">
+      <li>
+        <b>Tiempos que se pueden medir</b>
+        <span>Del reclamo a la inspección, de la inspección al acta, del acta al cierre. Con números, no con impresiones.</span>
+      </li>
+      <li>
+        <b>Cero papel en la recorrida</b>
+        <span>Se termina la doble carga: lo que se completa en la calle ya está cargado en el sistema.</span>
+      </li>
+      <li>
+        <b>Trazabilidad de punta a punta</b>
+        <span>Cada objeto del territorio tiene su historia: quién lo inspeccionó, cuándo, qué encontró y qué pasó después.</span>
+      </li>
+      <li>
+        <b>Los datos son de la intendencia</b>
+        <span>Están en su servidor o en su nube, en formatos abiertos, exportables cuando quiera y sin pedir autorización.</span>
+      </li>
+      <li>
+        <b>Sin costo de licencias, nunca</b>
+        <span>No se paga por inspector, por usuario ni por inspección. Sumar gente en temporada no cuesta más.</span>
+      </li>
+      <li>
+        <b>Autonomía real</b>
+        <span>Si mañana la intendencia decide seguir sola o con otro proveedor, el sistema sigue funcionando igual. Está diseñado para eso.</span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- ══ Licencia ═════════════════════════════════════════ -->
+<section class="seccion">
+  <div class="env">
+    <div class="cabecera">
+      <span class="etiqueta">La letra chica</span>
+      <h2>La licencia, sin abogados</h2>
+      <p>Tero se publica bajo una licencia de código abierto reconocida. Esto es lo que significa en la práctica.</p>
+    </div>
+
+    <div class="licencia">
+      <div class="sello">
+        AGPL-3.0-or-later
+        <small>Licencia libre</small>
+      </div>
+
+      <ul>
+        <li>
+          <span class="tilde" aria-hidden="true">✓</span>
+          <div><b>La intendencia lo usa gratis, para siempre.</b> No hay licencia por usuario, por inspector ni por inspección. No hay renovación anual.</div>
+        </li>
+        <li>
+          <span class="tilde" aria-hidden="true">✓</span>
+          <div><b>Puede modificarlo.</b> Con su equipo o contratando a quien quiera. El código está publicado y documentado desde el primer día.</div>
+        </li>
+        <li>
+          <span class="tilde" aria-hidden="true">✓</span>
+          <div><b>Puede compartirlo con otra intendencia.</b> De hecho, ésa es la idea: lo que sirve en una ciudad tiene que poder servir en Rocha o en Salto sin empezar de nuevo.</div>
+        </li>
+        <li>
+          <span class="tilde" aria-hidden="true">✓</span>
+          <div><b>Nadie se lo puede cerrar. Nosotros tampoco.</b> Si alguien mejora Tero y lo ofrece como servicio, queda obligado a publicar esas mejoras. La herramienta no puede volverse privada.</div>
+        </li>
+        <li>
+          <span class="tilde" aria-hidden="true">✓</span>
+          <div><b>Se puede auditar.</b> Cualquiera —la intendencia, la Junta, un vecino, un periodista— puede revisar cómo funciona por dentro el software que usa el Estado.</div>
+        </li>
+      </ul>
+
+      <p class="nota">
+        Es la misma licencia que usan FixMyStreet, Decidim, CKAN y KoboToolbox: herramientas abiertas que hoy operan
+        en Barcelona, en organismos de Naciones Unidas y en gobiernos de toda la región. En Uruguay, FixMyStreet ya
+        se probó como <em>porMiBarrio</em>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Temporada ════════════════════════════════════════ -->
+<section class="seccion temporada">
+  <div class="env-ancho">
+    <div class="cabecera">
+      <span class="etiqueta">Por qué una ciudad de temporada</span>
+      <h2>Hay ciudades que no tienen un año. Tienen dos.</h2>
+      <p>Un departamento que en temporada multiplica su población es el lugar más exigente del país para probar una herramienta de inspección — y por eso, el mejor.</p>
+    </div>
+
+    <div class="grilla">
+      <div class="celda">
+        <h3>El pico es el examen</h3>
+        <p>Gastronomía, alojamientos, alquileres temporarios, servicios de playa y espacio público al límite, todo en las mismas ocho semanas. Si funciona en temporada, funciona siempre.</p>
+      </div>
+      <div class="celda">
+        <h3>Refuerzos que arrancan el mismo día</h3>
+        <p>Los inspectores de temporada tienen que producir desde la primera jornada. Una herramienta que se aprende en veinte minutos no es un lujo: es la condición.</p>
+      </div>
+      <div class="celda">
+        <h3>Lo que se aprende, se comparte</h3>
+        <p>La ciudad contraparte integra CIIAR Uruguay junto a otros doce gobiernos locales. Todo lo que resulte acá queda disponible, documentado y en español, para los demás.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Quién lo hace ════════════════════════════════════ -->
+<section class="seccion">
+  <div class="env">
+    <div class="cabecera">
+      <span class="etiqueta">Quién lo hace</span>
+      <h2>GoDoWorks</h2>
+      <p>Una empresa uruguaya que hace trece años hace exactamente una cosa: ordenar el trabajo de los equipos que trabajan en la calle.</p>
+    </div>
+
+    <div class="cifras">
+      <div class="cifra"><strong>2012</strong><span>Fundada en Uruguay</span></div>
+      <div class="cifra"><strong>+12</strong><span>Países donde opera</span></div>
+      <div class="cifra"><strong>+150</strong><span>Clientes activos</span></div>
+      <div class="cifra"><strong>+15.000</strong><span>Personas en campo</span></div>
+    </div>
+
+    <p>
+      Ya trabajamos con las intendencias de <strong>Montevideo</strong> y <strong>Canelones</strong> —ambas integrantes de
+      CIIAR Uruguay— y con operaciones de inspección en campo del sector privado en toda la región. Conocemos el problema
+      desde adentro: la señal que se corta, el inspector que no quiere pelearse con una pantalla, el acta que tiene que
+      valer, y el director que necesita el número el lunes a la mañana.
+    </p>
+    <p>
+      Tero es nuestra manera de poner esa experiencia a disposición del Estado uruguayo, en código abierto y sin ataduras.
+    </p>
+  </div>
+</section>
+
+<!-- ══ Qué sigue ════════════════════════════════════════ -->
+<section class="seccion">
+  <div class="env">
+    <div class="cabecera">
+      <span class="etiqueta">Qué sigue</span>
+      <h2>Qué necesitamos de la intendencia</h2>
+      <p>El programa GovTech Connect —impulsado por BID Lab y ejecutado por la Red de Innovación Local— financia la implementación del piloto con hasta USD 10.000. La intendencia no pone dinero.</p>
+    </div>
+
+    <ul class="pedido">
+      <li>
+        <span class="tilde" aria-hidden="true">→</span>
+        <div><b>Una carta de interés.</b> Una página, firmada por autoridad competente, que valide el desafío y el interés en participar. No compromete recursos ni implica exclusividad.</div>
+      </li>
+      <li>
+        <span class="tilde" aria-hidden="true">→</span>
+        <div><b>Una contraparte técnica.</b> Una persona designada para acompañar el seguimiento del piloto.</div>
+      </li>
+      <li>
+        <span class="tilde" aria-hidden="true">→</span>
+        <div><b>El desafío puntual.</b> Definir juntos qué inspección concreta se digitaliza primero. Eso lo sabe la intendencia mejor que nadie.</div>
+      </li>
+    </ul>
+
+    <div class="fechas">
+      <div>
+        <span class="etiqueta">Cierre de postulaciones</span>
+        <b>25 de agosto de 2026</b>
+      </div>
+      <div>
+        <span class="etiqueta">Resultado</span>
+        <b>16 de septiembre de 2026</b>
+      </div>
+      <div>
+        <span class="etiqueta">Financiamiento</span>
+        <b>Hasta USD 10.000</b>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Pie ══════════════════════════════════════════════ -->
+<footer class="env">
+  <div class="pie">
+    <svg viewBox="0 0 64 64" role="img" aria-label="Marca de Tero">
+      <circle cx="32" cy="32" r="30" fill="none" stroke="currentColor" stroke-width="3"/>
+      <path d="M14 44c0-8 5-14 13-14 6 0 10 3 12 7l-2 9c-3 2-7 3-11 3-7 0-12-2-12-5z" fill="currentColor"/>
+      <circle cx="30" cy="27" r="8.5" fill="currentColor"/>
+      <path d="M25 20c-3-3-7-5-11-5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      <path d="M38 25l11 3-11 3z" fill="currentColor"/>
+      <circle cx="33" cy="25" r="2" fill="var(--papel)"/>
+    </svg>
+    <span><strong>Tero</strong> · Plataforma abierta de inspecciones municipales</span>
+    <span>Software bajo AGPL-3.0-or-later · Documentación bajo CC BY 4.0</span>
+    <span>GoDoWorks · Uruguay</span>
+  </div>
+</footer>
