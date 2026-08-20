@@ -19,10 +19,9 @@
 *.cache
 .phpunit.result.cache
 
-# Datos locales de contenedores
+# Datos locales de contenedores (los volúmenes, no la configuración)
 /docker/datos/
-/docker/postgres/
-/docker/minio/
+/docker/volumenes/
 
 # Herramientas y editores
 /.idea/
