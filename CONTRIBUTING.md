@@ -70,7 +70,7 @@ adoptar la herramienta.
 
 - **Ninguna dependencia con licencia no aprobada por la OSI.** En particular: Redis
   (desde 2024 es RSALv2/SSPL) — usamos Valkey; nada de Google Maps o Mapbox — usamos
-  MapLibre sobre OpenStreetMap; nada de servicios cerrados de push o SMS.
+  Leaflet sobre OpenStreetMap; nada de servicios cerrados de push o SMS.
 - **Ninguna función de inteligencia artificial sobre APIs propietarias** dentro del
   núcleo. Si aporta valor, va como complemento externo y opcional, o corre sobre
   modelos de pesos abiertos.

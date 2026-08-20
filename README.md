@@ -46,9 +46,21 @@ Ver el [ROADMAP](ROADMAP.md) para el alcance del piloto y lo que viene después.
 
 ## Empezar
 
+**La aplicación de campo** corre sin ninguna instalación previa más que Node:
+
 ```bash
 git clone https://github.com/godoworks/Tero.git
-cd Tero
+cd Tero/app-campo
+npm install
+npm run dev
+```
+
+Se abre en el navegador y funciona sin conexión: los datos quedan en el
+dispositivo. Para probarlo de verdad, abrila en el celular y apagá los datos.
+
+**La infraestructura del backend**, para cuando exista la API:
+
+```bash
 cp .env.example .env
 docker compose up -d
 ```
@@ -56,9 +68,23 @@ docker compose up -d
 Detalle y resolución de problemas en
 [`documentacion/instalacion.md`](documentacion/instalacion.md).
 
-> **Estado del proyecto: andamiaje.** Hoy el repositorio tiene la infraestructura,
-> el modelo de datos y las decisiones de diseño. El código de la aplicación está
-> en construcción — ver [ROADMAP](ROADMAP.md).
+> **Estado del proyecto.** La aplicación de campo está en construcción y ya se
+> puede usar. El backend está definido —modelo de datos, especificación de API e
+> infraestructura— pero todavía no implementado: hoy la aplicación guarda todo en
+> el dispositivo. Ver [ROADMAP](ROADMAP.md).
+
+## Cómo está organizado
+
+| Carpeta | Qué hay |
+|---|---|
+| `app-campo/` | La aplicación de campo: lo que usa el inspector en la calle |
+| `docs/` | La presentación del proyecto, publicada en GitHub Pages |
+| `documentacion/` | Modelo de datos, instalación, replicación y API |
+| `docker/` | Configuración de los contenedores |
+
+Dentro de `app-campo/src` hay dos archivos que conviene leer antes que ningún
+otro, porque son el contrato del que dependen todos los demás:
+`dominio/tipos.ts` y `datos/contratos.ts`.
 
 ## Cómo está hecho
 
@@ -72,7 +98,7 @@ adoptable por un gobierno que necesita auditar lo que usa.
 | Caché y cola | **Valkey** — no Redis | BSD-3-Clause |
 | Archivos | MinIO | AGPL-3.0 |
 | Identidad | Keycloak (OpenID Connect) | Apache-2.0 |
-| Mapas | MapLibre GL + OpenStreetMap | BSD-3-Clause / ODbL |
+| Mapas | Leaflet + OpenStreetMap | BSD-2-Clause / ODbL |
 | Backend | PHP 8.3 + Laravel | MIT |
 | Aplicación de campo | Vue 3 + Vite, instalable en el celular | MIT |
 

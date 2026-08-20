@@ -350,6 +350,40 @@ SPDX-License-Identifier: CC-BY-4.0
 
   .pie svg { width: 26px; height: 26px; }
 
+  /* ── Probar la demostración ───────────────────────────── */
+
+  .probar {
+    display: flex;
+    flex-direction: column;
+    gap: 1.4rem;
+    align-items: flex-start;
+    padding: clamp(1.75rem, 4vw, 2.5rem);
+    background: var(--superficie);
+    border: 1px solid var(--borde);
+    border-left: 4px solid var(--rojo);
+  }
+
+  .probar h2 { font-size: clamp(1.5rem, 3.5vw, 2rem); font-weight: 700; letter-spacing: -0.02em; }
+  .probar p { margin: 0; max-width: 52ch; }
+  .probar .pasos { margin: 0; padding-left: 1.15rem; color: var(--apagado); font-size: 0.9688rem; }
+  .probar .pasos li { margin-bottom: 0.3rem; }
+
+  .boton-probar {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.85rem 1.4rem;
+    background: var(--rojo);
+    color: #fff;
+    text-decoration: none;
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.01em;
+  }
+
+  .boton-probar:hover { background: var(--tinta); }
+
   @media (prefers-reduced-motion: no-preference) {
     .portada-int > * { animation: subir 0.6s cubic-bezier(0.16, 0.84, 0.44, 1) backwards; }
     .portada-int > *:nth-child(2) { animation-delay: 0.07s; }
@@ -534,6 +568,30 @@ SPDX-License-Identifier: CC-BY-4.0
         </div>
       </li>
     </ol>
+  </div>
+</section>
+
+<!-- ══ Probar ═══════════════════════════════════════════ -->
+<section class="seccion">
+  <div class="env">
+    <div class="probar">
+      <span class="etiqueta">Demostración</span>
+      <h2>Probalo ahora, desde el celular</h2>
+      <p>
+        No es un video ni un prototipo dibujado: es la aplicación funcionando.
+        Abrila en el teléfono y hacé el recorrido completo de una inspección.
+      </p>
+      <ol class="pasos">
+        <li>Abrí el enlace en el celular.</li>
+        <li><strong>Apagá los datos y el wifi.</strong> Es la parte que importa.</li>
+        <li>Elegí una tarea, completá el checklist, sacá fotos y firmá.</li>
+        <li>Mirá cómo sale el acta en PDF, sin conexión.</li>
+      </ol>
+      <a class="boton-probar" href="./app/">Abrir la demostración →</a>
+      <p class="chico tenue" style="margin:0">
+        Los datos son sintéticos y quedan solo en tu dispositivo. Nada se envía a ningún servidor.
+      </p>
+    </div>
   </div>
 </section>
 
@@ -729,6 +787,7 @@ SPDX-License-Identifier: CC-BY-4.0
     </svg>
     <span><strong>Tero</strong> · Plataforma abierta de inspecciones municipales</span>
     <span>Software bajo AGPL-3.0-or-later · Documentación bajo CC BY 4.0</span>
+    <span><a href="https://github.com/godoworks/Tero">Código en GitHub</a></span>
     <span>GoDoWorks · Uruguay</span>
   </div>
 </footer>
