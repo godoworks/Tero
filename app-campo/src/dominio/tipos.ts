@@ -132,6 +132,40 @@ export interface FormularioVersion {
   secciones: Seccion[]
   incumplimientos: Incumplimiento[]
   vigenteDesde: FechaHora
+  /**
+   * Quien publico esta version. Queda en la version y no solo en la
+   * auditoria: al reconstruir un acta vieja hay que poder decir con que
+   * checklist se hizo y quien lo puso en vigencia, sin depender de que el
+   * registro de auditoria siga estando.
+   */
+  publicadaPor?: string
+}
+
+/**
+ * Formulario en edicion.
+ *
+ * Existe porque `FormularioVersion` es inmutable y editar no puede significar
+ * modificarla: mientras alguien arma el checklist necesita un lugar donde
+ * guardar trabajo a medio hacer, sin que eso afecte a las inspecciones que se
+ * estan ejecutando con la version vigente.
+ *
+ * Al publicarse, el borrador se convierte en una `FormularioVersion` nueva y
+ * deja de existir. Las inspecciones ya hechas siguen apuntando a la version con
+ * la que se completaron: nunca se tocan.
+ */
+export interface BorradorFormulario {
+  id: Uuid
+  organismoId: Uuid
+  /** Que formulario se esta editando. */
+  formularioId: Uuid
+  /** De que version se partio. Vacio si el formulario es nuevo. */
+  baseVersionId?: Uuid
+  titulo: string
+  secciones: Seccion[]
+  incumplimientos: Incumplimiento[]
+  autor: string
+  creadoEn: FechaHora
+  actualizadoEn: FechaHora
 }
 
 export interface TipoInspeccion {

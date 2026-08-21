@@ -18,6 +18,34 @@ const titulo = computed(() => (ruta.meta.titulo as string) ?? 'Tero')
  */
 const esPublico = computed(() => ruta.meta.publico === true)
 
+/**
+ * Modulo activo segun la ruta. Cada uno tiene su tono, y ese tono aparece
+ * en la barra de arriba, en el icono de abajo y en la portada: quien entro
+ * por la puerta celeste reconoce el celeste en todo el recorrido.
+ */
+const MODULOS: Record<string, string> = {
+  tareas: 'inspector',
+  inspeccion: 'inspector',
+  acta: 'inspector',
+  mapa: 'mapa',
+  'objeto-nuevo': 'mapa',
+  objeto: 'mapa',
+  planificacion: 'supervisor',
+  formularios: 'formularios',
+  'formulario-editar': 'formularios',
+  'formulario-versiones': 'formularios',
+  tablero: 'tablero',
+  'reclamo-nuevo': 'vecino',
+  'reclamo-estado': 'vecino',
+}
+
+const modulo = computed(() => MODULOS[String(ruta.name ?? '')] ?? 'inspector')
+
+const estiloModulo = computed(() => ({
+  '--modulo': `var(--neon-${modulo.value})`,
+  '--modulo-tinta': `var(--${modulo.value}-tinta)`,
+}))
+
 const hayConexion = ref(navigator.onLine)
 const pendientes = ref(0)
 
@@ -52,7 +80,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="armazon">
+  <div class="armazon" :style="estiloModulo">
     <header class="barra">
       <RouterLink to="/" class="marca" aria-label="Volver al inicio">
         <svg viewBox="0 0 64 64" width="26" height="26">
@@ -90,26 +118,34 @@ onUnmounted(() => {
     </main>
 
     <nav v-if="!esPublico" class="pie" aria-label="Navegación principal">
-      <RouterLink to="/tareas" class="pie-enlace">
+      <RouterLink to="/tareas" class="pie-enlace" style="--tono: var(--neon-inspector)">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <path d="M4 6h16M4 12h16M4 18h10" />
         </svg>
         <span>Tareas</span>
       </RouterLink>
-      <RouterLink to="/mapa" class="pie-enlace">
+      <RouterLink to="/mapa" class="pie-enlace" style="--tono: var(--neon-mapa)">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14" />
         </svg>
         <span>Mapa</span>
       </RouterLink>
-      <RouterLink to="/planificacion" class="pie-enlace">
+      <RouterLink to="/planificacion" class="pie-enlace" style="--tono: var(--neon-supervisor)">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M8 2v3M16 2v3M3 8h18M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
           <path d="M9 13l2 2 4-4" />
         </svg>
         <span>Planificar</span>
       </RouterLink>
-      <RouterLink to="/tablero" class="pie-enlace">
+      <RouterLink to="/formularios" class="pie-enlace" style="--tono: var(--neon-formularios)">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" />
+          <path d="M14 3v5h5" />
+          <path d="M9 13h6M9 17h4" />
+        </svg>
+        <span>Checklists</span>
+      </RouterLink>
+      <RouterLink to="/tablero" class="pie-enlace" style="--tono: var(--neon-tablero)">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
         </svg>
@@ -137,9 +173,12 @@ onUnmounted(() => {
   padding: var(--seguro-arriba) 1rem 0;
   background: var(--tinta);
   color: var(--papel);
+  /* Un filete encendido con el color del modulo: dice donde estas parado
+     antes de que leas el titulo. */
+  box-shadow: inset 0 -2px 0 0 var(--modulo), 0 0 18px -6px var(--modulo);
 }
 
-.marca { display: flex; flex: none; color: inherit; }
+.marca { display: flex; flex: none; color: var(--modulo); }
 
 .titulo {
   flex: 1;
@@ -162,7 +201,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.senal--conectado { background: rgba(255, 255, 255, 0.14); color: #cfe6da; }
+.senal--conectado { background: rgba(255, 255, 255, 0.1); color: var(--modulo); }
 .senal--sin-senal { background: var(--rojo); color: #fff; }
 .senal--pendiente { background: var(--ambar-suave); color: var(--ambar); }
 
@@ -175,7 +214,7 @@ onUnmounted(() => {
   right: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   height: calc(var(--alto-pie) + var(--seguro-abajo));
   padding-bottom: var(--seguro-abajo);
   background: var(--superficie);
@@ -194,5 +233,19 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.pie-enlace.router-link-active { color: var(--rojo); }
+.pie-enlace.router-link-active {
+  color: var(--tono);
+  /* El neon se lee mal sobre el fondo claro del pie, asi que el icono
+     activo se enciende sobre su propio chip oscuro en lugar de teñir el
+     texto. */
+}
+
+.pie-enlace.router-link-active svg {
+  background: var(--tinta);
+  border-radius: 8px;
+  padding: 3px;
+  box-shadow: 0 0 12px -3px var(--tono);
+}
+
+.pie-enlace.router-link-active span { color: var(--tinta); font-weight: 700; }
 </style>

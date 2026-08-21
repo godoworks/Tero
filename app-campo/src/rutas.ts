@@ -76,6 +76,30 @@ const rutas: RouteRecordRaw[] = [
     component: () => import('@/vistas/Planificacion.vue'),
     meta: { titulo: 'Planificación' },
   },
+  // Edicion de checklists. Es lo que permite que cada direccion arme sus
+  // propios formularios sin programar, y lo que sostiene la promesa de que
+  // un acta vieja pueda reconstruirse: publicar crea una version nueva y
+  // nunca modifica una publicada.
+  {
+    path: '/formularios',
+    name: 'formularios',
+    component: () => import('@/vistas/Formularios.vue'),
+    meta: { titulo: 'Formularios' },
+  },
+  {
+    path: '/formularios/:tipoInspeccionId/editar',
+    name: 'formulario-editar',
+    component: () => import('@/vistas/FormularioEditor.vue'),
+    props: true,
+    meta: { titulo: 'Editar checklist' },
+  },
+  {
+    path: '/formularios/:formularioId/versiones',
+    name: 'formulario-versiones',
+    component: () => import('@/vistas/FormularioVersiones.vue'),
+    props: true,
+    meta: { titulo: 'Versiones del checklist' },
+  },
   {
     path: '/tablero',
     name: 'tablero',

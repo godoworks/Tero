@@ -7,35 +7,67 @@
  */
 
 :root {
-  /* Identidad */
-  --tinta: #12212e;
-  --papel: #f2f4f2;
+  /* ── Base ────────────────────────────────────────────────────────────
+     Fondo claro y frio para el contenido: la aplicacion se usa al sol, en
+     la calle, y ahi el fondo oscuro se convierte en un espejo. El chrome
+     (barras, chips, cabeceras) si es oscuro, y es sobre el oscuro donde
+     viven los neones. */
+  --tinta: #0b1220;
+  --tinta-2: #16233a;
+  --papel: #edf1f6;
   --superficie: #ffffff;
-  --superficie-2: #eceff0;
-  --rojo: #c6362c;
-  --rojo-suave: #f6e6e3;
-  --verde: #2f5d4e;
-  --verde-suave: #e4efe9;
-  --ambar: #b26a00;
-  --ambar-suave: #fbeed6;
-  --apagado: #5c6b72;
-  --borde: #d8dddb;
-  --filete: #e6eae8;
+  --superficie-2: #dde6ef;
+  --borde: #c7d5e2;
+  --filete: #dde6ed;
+  --apagado: #4f647a;
 
-  /* Estado de la inspeccion */
-  --estado-pendiente: #5c6b72;
-  --estado-asignada: #2b5fc0;
-  --estado-campo: #b26a00;
-  --estado-cerrada: #2f5d4e;
-  --estado-vencida: #c6362c;
+  /* ── Marca ───────────────────────────────────────────────────────── */
+  --rojo: #f5304f;
+  --rojo-suave: #ffe4e8;
+  --verde: #00775a;
+  --verde-suave: #dcf7ec;
+  --ambar: #9a5b00;
+  --ambar-suave: #fdeecf;
 
-  /* Tipografia */
+  /* ── Color por modulo ────────────────────────────────────────────────
+     Cada modulo tiene su tono. El `--neon-*` es para superficies oscuras;
+     el `--*-tinta` es el mismo tono llevado a un valor legible sobre
+     fondo claro. Nunca se usa el neon para texto sobre papel: no pasa
+     ningun umbral de contraste y al sol desaparece. */
+  --neon-inspector: #2de2ff;
+  --neon-mapa: #c6ff4d;
+  --neon-supervisor: #3dffa8;
+  --neon-tablero: #c08bff;
+  --neon-vecino: #ff4d9d;
+  --neon-formularios: #ffb547;
+
+  --inspector-tinta: #045d73;
+  --mapa-tinta: #46630a;
+  --supervisor-tinta: #006248;
+  --tablero-tinta: #6423c9;
+  --vecino-tinta: #a3005a;
+  --formularios-tinta: #8a4a00;
+
+  /* Modulo activo. Lo pisa cada vista; este es el valor por defecto. */
+  --modulo: var(--neon-inspector);
+  --modulo-tinta: var(--inspector-tinta);
+
+  /* ── Estado de la inspeccion ─────────────────────────────────────── */
+  --estado-pendiente: #4f647a;
+  --estado-asignada: #1b4fd8;
+  --estado-campo: #9a5b00;
+  --estado-cerrada: #00775a;
+  --estado-vencida: #d61f3d;
+
+  /* ── Tipografia ──────────────────────────────────────────────────── */
   --fuente: 'Archivo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
-  /* Medidas */
+  /* ── Medidas ─────────────────────────────────────────────────────── */
   --radio: 10px;
   --radio-chico: 6px;
-  --sombra: 0 1px 2px rgba(18, 33, 46, 0.06), 0 4px 12px rgba(18, 33, 46, 0.06);
+  --sombra: 0 1px 2px rgba(11, 18, 32, 0.07), 0 6px 18px rgba(11, 18, 32, 0.07);
+  /* Resplandor del neon. Solo sobre oscuro. */
+  --resplandor: 0 0 0 1px currentColor, 0 0 14px -2px currentColor;
   --alto-barra: 56px;
   --alto-pie: 60px;
 

@@ -8,7 +8,33 @@ import { almacen } from './datos/almacen'
 import { revisarVencimientos } from './servicios/reinspeccion'
 import './estilos/base.css'
 
+/**
+ * Recarga una sola vez cuando entra una version nueva.
+ *
+ * Sin esto, quien ya abrio la aplicacion antes sigue viendo los archivos
+ * guardados hasta la SEGUNDA visita despues de cada despliegue: el service
+ * worker nuevo se instala, pero la pestaña abierta ya se dibujo con los
+ * viejos. Para una demostracion que alguien va a abrir una sola vez, eso
+ * significa mostrarle una version anterior.
+ *
+ * La guarda de `teniaControlador` evita recargar en la primera visita, donde
+ * el cambio de controlador es simplemente el service worker tomando el
+ * control por primera vez.
+ */
+function recargarAlActualizar() {
+  if (!('serviceWorker' in navigator)) return
+  const teniaControlador = Boolean(navigator.serviceWorker.controller)
+  let recargando = false
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!teniaControlador || recargando) return
+    recargando = true
+    window.location.reload()
+  })
+}
+
 async function arrancar() {
+  recargarAlActualizar()
+
   // Los datos de demostracion se cargan una sola vez, la primera vez que la
   // aplicacion se abre en este dispositivo.
   await almacen.prepararDatosIniciales()

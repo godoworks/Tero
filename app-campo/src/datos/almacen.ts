@@ -26,9 +26,9 @@ import type {
   ResultadoVisible, SeguimientoReclamo,
 } from './contratos'
 import type {
-  Acta, Evidencia, EventoAuditoria, FechaHora, Firma, FormularioVersion,
-  Inspeccion, ItemCola, ObjetoInspeccionable, Organismo, Respuesta,
-  TipoInspeccion, TipoObjeto, Uuid, Zona,
+  Acta, BorradorFormulario, Evidencia, EventoAuditoria, FechaHora, Firma,
+  FormularioVersion, Inspeccion, ItemCola, ObjetoInspeccionable, Organismo,
+  Respuesta, TipoInspeccion, TipoObjeto, Uuid, Zona,
 } from '@/dominio/tipos'
 import { ahora, calcularHash, distanciaMetros, nuevoUuid } from '@/dominio/utilidades'
 import { aDatoPlano } from './planos'
@@ -204,10 +204,327 @@ async function obtenerFormularioVersion(id: Uuid): Promise<FormularioVersion | u
   return bd.get('formularioVersiones', id)
 }
 
+// ── Edicion de checklists ─────────────────────────────────────────────
+//
+// Toda esta parte se apoya en una sola regla, y conviene decirla una vez:
+// una `FormularioVersion` publicada no se modifica NUNCA. Editar no es
+// cambiar la version vigente, es escribir una nueva al lado. Por eso:
+//
+//  - lo que se edita vive en el almacen `borradores`, aparte;
+//  - publicar usa `add` y no `put` sobre `formularioVersiones`, de modo que
+//    ni un id repetido pueda pisar una version existente;
+//  - las inspecciones no se tocan al publicar. Una inspeccion guarda su
+//    `formularioVersionId` y sigue con el, aunque despues salgan diez
+//    versiones mas. Es lo que permite reconstruir un acta de hace ocho meses
+//    tal como se emitio, y lo que evita que a un inspector que esta en la
+//    calle le cambien las preguntas abajo de los pies.
+
+async function listarVersiones(formularioId: Uuid): Promise<FormularioVersion[]> {
+  const bd = await abrirBd()
+  const versiones = await bd.getAllFromIndex('formularioVersiones', 'porFormulario', formularioId)
+  // De la mas nueva a la mas vieja: quien mira el historial busca primero que
+  // cambio ultimo.
+  return versiones.sort((a, b) => b.version - a.version)
+}
+
+async function listarBorradores(): Promise<BorradorFormulario[]> {
+  const bd = await abrirBd()
+  const borradores = await bd.getAll('borradores')
+  return borradores.sort((a, b) => b.actualizadoEn.localeCompare(a.actualizadoEn))
+}
+
+async function obtenerBorrador(id: Uuid): Promise<BorradorFormulario | undefined> {
+  const bd = await abrirBd()
+  return bd.get('borradores', id)
+}
+
+/**
+ * Abre la edicion de un checklist.
+ *
+ * Una sola transaccion para leer el tipo, leer su version vigente, mirar si ya
+ * hay un borrador y crearlo si no lo hay. Que la comprobacion y el alta ocurran
+ * dentro de la misma transaccion es lo que hace de verdad cierto el «uno por
+ * formulario»: si estuvieran separadas, dos pestañas podrian comprobar a la vez
+ * que no hay ninguno y crear una cada una. El indice unico del almacen es la
+ * red debajo de eso.
+ */
+async function abrirBorrador(tipoInspeccionId: Uuid, autor: string): Promise<BorradorFormulario> {
+  const bd = await abrirBd()
+  const tx = bd.transaction(
+    ['tiposInspeccion', 'formularioVersiones', 'borradores'],
+    'readwrite',
+  )
+
+  const tipo = await tx.objectStore('tiposInspeccion').get(tipoInspeccionId)
+  if (!tipo) {
+    await tx.done
+    throw new Error(`No hay ningún tipo de inspección con el id ${tipoInspeccionId}`)
+  }
+
+  const vigente = await tx.objectStore('formularioVersiones').get(tipo.formularioVersionId)
+  if (!vigente) {
+    await tx.done
+    throw new Error(
+      `El tipo de inspección «${tipo.nombre}» apunta a una versión de formulario que no está en la base`,
+    )
+  }
+
+  const store = tx.objectStore('borradores')
+  const abierto = await store.index('porFormulario').get(vigente.formularioId)
+  if (abierto) {
+    // Ya hay alguien editando este checklist. Se devuelve ese borrador en vez
+    // de abrir otro: dos personas con copias distintas del mismo formulario
+    // terminan con una de las dos perdiendo su trabajo sin enterarse.
+    await tx.done
+    return abierto
+  }
+
+  const momento = ahora()
+  const borrador: BorradorFormulario = {
+    id: nuevoUuid(),
+    organismoId: tipo.organismoId,
+    formularioId: vigente.formularioId,
+    baseVersionId: vigente.id,
+    titulo: vigente.titulo,
+    // `vigente` salio de IndexedDB, o sea que ya es una copia propia: editar
+    // estas secciones no puede alcanzar a la version publicada de la que se
+    // partio ni por referencia compartida.
+    secciones: vigente.secciones,
+    incumplimientos: vigente.incumplimientos,
+    autor,
+    creadoEn: momento,
+    actualizadoEn: momento,
+  }
+
+  // `add` y no `put`: un id ya usado tiene que fallar, no pisar nada.
+  await store.add(aDatoPlano(borrador))
+  await tx.done
+  return borrador
+}
+
+async function guardarBorrador(borrador: BorradorFormulario): Promise<void> {
+  const bd = await abrirBd()
+  const tx = bd.transaction('borradores', 'readwrite')
+  const store = tx.objectStore('borradores')
+
+  const previo = await store.get(borrador.id)
+  const completo: BorradorFormulario = {
+    ...borrador,
+    // De que formulario es el borrador y de que version se partio quedaron
+    // fijados al abrirlo. Una pantalla de edicion no tiene por que poder
+    // cambiarlos, y si los cambiara, al publicar la version nueva colgaria de
+    // otro formulario.
+    formularioId: previo?.formularioId ?? borrador.formularioId,
+    baseVersionId: previo?.baseVersionId ?? borrador.baseVersionId,
+    creadoEn: previo?.creadoEn ?? borrador.creadoEn,
+    actualizadoEn: ahora(),
+  }
+
+  try {
+    await store.put(aDatoPlano(completo))
+    await tx.done
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'ConstraintError') {
+      throw new Error(
+        'Ya hay otro borrador abierto para este formulario. Publicalo o descartalo antes de abrir uno nuevo.',
+      )
+    }
+    throw error
+  }
+
+  // El borrador NO se encola: es trabajo a medio hacer, y lo que viaja al
+  // servidor el dia que exista es la version publicada, no el intento.
+}
+
+async function descartarBorrador(id: Uuid): Promise<void> {
+  const bd = await abrirBd()
+  // Borra el borrador y nada mas. Ninguna version publicada esta en este
+  // almacen, asi que por este camino no hay forma de perder una.
+  await bd.delete('borradores', id)
+}
+
+/**
+ * Todo lo que le falta a un borrador para poder publicarse.
+ *
+ * Junta TODAS las faltas en vez de cortar en la primera: quien esta armando un
+ * checklist prefiere ver de una lo que le falta a descubrirlo de a un error por
+ * intento. Es pura, no toca la base, y por eso corre antes de abrir ninguna
+ * transaccion de escritura.
+ */
+function faltasParaPublicar(borrador: BorradorFormulario): string[] {
+  const faltas: string[] = []
+
+  if (!borrador.titulo.trim()) faltas.push('El formulario no tiene título.')
+  if (borrador.secciones.length === 0) {
+    faltas.push('El formulario no tiene ninguna sección.')
+  }
+
+  // El catalogo es el del propio formulario: un incumplimiento de otro
+  // formulario no existe para este, y al emitir el acta no habria de donde
+  // sacar la normativa ni el plazo.
+  const catalogo = new Set(borrador.incumplimientos.map((i) => i.id))
+  const idsSeccion = new Set<string>()
+  const idsPregunta = new Set<string>()
+
+  for (const seccion of borrador.secciones) {
+    const nombre = seccion.titulo.trim() || `(sección ${seccion.id})`
+    if (!seccion.titulo.trim()) {
+      faltas.push(`La sección ${seccion.id} no tiene título.`)
+    }
+    if (idsSeccion.has(seccion.id)) {
+      faltas.push(`Hay dos secciones con el mismo identificador «${seccion.id}».`)
+    }
+    idsSeccion.add(seccion.id)
+
+    if (seccion.preguntas.length === 0) {
+      faltas.push(`La sección «${nombre}» no tiene ninguna pregunta.`)
+      continue
+    }
+
+    for (const pregunta of seccion.preguntas) {
+      const texto = pregunta.texto.trim()
+      const cual = texto || `de identificador ${pregunta.id}`
+
+      if (!texto) {
+        faltas.push(`Hay una pregunta sin texto en la sección «${nombre}».`)
+      }
+      // El id de la pregunta es la clave con la que se guarda la respuesta:
+      // dos iguales hacen que una respuesta pise a la otra en silencio.
+      if (idsPregunta.has(pregunta.id)) {
+        faltas.push(`Hay dos preguntas con el mismo identificador «${pregunta.id}».`)
+      }
+      idsPregunta.add(pregunta.id)
+
+      if (pregunta.tipo === 'opciones' && (pregunta.opciones?.length ?? 0) === 0) {
+        faltas.push(
+          `La pregunta «${cual}» de la sección «${nombre}» es de opciones pero no tiene ninguna cargada.`,
+        )
+      }
+
+      if (pregunta.incumplimientoId && !catalogo.has(pregunta.incumplimientoId)) {
+        faltas.push(
+          `La pregunta «${cual}» de la sección «${nombre}» apunta al incumplimiento «${pregunta.incumplimientoId}», que no está en el catálogo del formulario.`,
+        )
+      }
+    }
+  }
+
+  return faltas
+}
+
+/**
+ * Publica el borrador como version nueva.
+ *
+ * Todo lo que cambia el estado del mundo ocurre en UNA transaccion: se agrega
+ * la version, se reapunta el o los tipos de inspeccion, se borra el borrador y
+ * se anota la auditoria. O pasa todo o no pasa nada. Si esto quedara a medias
+ * —version escrita, tipo sin reapuntar, o peor, tipo apuntando a una version
+ * que no llego a escribirse— la aplicacion dejaria de poder abrir inspecciones
+ * de ese tipo.
+ *
+ * Por eso mismo, entre el `bd.transaction(...)` y el `tx.done` no hay ni un
+ * `await` a algo que no sea la propia transaccion: IndexedDB cierra una
+ * transaccion en cuanto se queda sin trabajo pendiente, y esperar cualquier
+ * otra cosa en el medio la mataria.
+ */
+async function publicarBorrador(id: Uuid, autor: string): Promise<FormularioVersion> {
+  const bd = await abrirBd()
+
+  const previo = await bd.get('borradores', id)
+  if (!previo) throw new Error(`No hay ningún borrador con el id ${id}`)
+
+  const faltas = faltasParaPublicar(previo)
+  if (faltas.length > 0) {
+    throw new Error(`No se puede publicar el formulario. ${faltas.join(' ')}`)
+  }
+
+  const tx = bd.transaction(
+    ['borradores', 'formularioVersiones', 'tiposInspeccion', 'auditoria'],
+    'readwrite',
+  )
+  const almacenBorradores = tx.objectStore('borradores')
+  const almacenVersiones = tx.objectStore('formularioVersiones')
+  const almacenTipos = tx.objectStore('tiposInspeccion')
+
+  // Se relee dentro de la transaccion: entre la validacion y esta linea otra
+  // pestaña pudo haberlo descartado o publicado.
+  const borrador = await almacenBorradores.get(id)
+  if (!borrador) {
+    await tx.done
+    throw new Error(`El borrador ${id} ya no existe: alguien lo publicó o lo descartó`)
+  }
+
+  const anteriores = await almacenVersiones.index('porFormulario').getAll(borrador.formularioId)
+  // El numero sale del maximo ya publicado y no de una cuenta ni de un
+  // contador aparte: aunque falte alguna version intermedia, la nueva siempre
+  // queda por encima de todas.
+  const maxima = anteriores.reduce((mayor, v) => Math.max(mayor, v.version), 0)
+
+  const nueva: FormularioVersion = {
+    id: nuevoUuid(),
+    formularioId: borrador.formularioId,
+    version: maxima + 1,
+    titulo: borrador.titulo.trim(),
+    secciones: borrador.secciones,
+    incumplimientos: borrador.incumplimientos,
+    vigenteDesde: ahora(),
+    publicadaPor: autor,
+  }
+
+  // `add` y no `put`. Es la ultima linea de defensa de la inmutabilidad: si el
+  // id sorteado ya existiera, esto falla y aborta la transaccion entera en vez
+  // de sobrescribir una version publicada.
+  await almacenVersiones.add(aDatoPlano(nueva))
+
+  // Se reapunta el tipo de inspeccion que estaba usando CUALQUIER version de
+  // este formulario, no solo la que sirvio de base: puede haberse publicado
+  // otra mientras este borrador estaba abierto.
+  const idsAnteriores = new Set(anteriores.map((v) => v.id))
+  const tipos = await almacenTipos.getAll()
+  const reapuntados = tipos.filter((t) => idsAnteriores.has(t.formularioVersionId))
+  for (const tipo of reapuntados) {
+    await almacenTipos.put(aDatoPlano({ ...tipo, formularioVersionId: nueva.id }))
+  }
+
+  // El borrador deja de existir al publicarse: lo que queda es la version.
+  await almacenBorradores.delete(id)
+
+  // La auditoria se escribe aca dentro y no con `auditoria.registrar()`, que
+  // abriria su propia transaccion: publicar sin dejar rastro, o dejar rastro de
+  // algo que no se publico, son las dos cosas que este registro existe para
+  // que no pasen.
+  const evento: EventoAuditoria = {
+    id: nuevoUuid(),
+    organismoId: borrador.organismoId,
+    entidad: 'formulario',
+    entidadId: borrador.formularioId,
+    accion: 'publicar_version',
+    detalle: `Versión ${nueva.version} de «${nueva.titulo}»`
+      + ` (${nueva.secciones.length} secciones, ${nueva.incumplimientos.length} incumplimientos).`
+      + ` Tipos de inspección reapuntados: ${reapuntados.length}.`,
+    actor: autor,
+    ocurridoEn: ahora(),
+  }
+  await tx.objectStore('auditoria').add(aDatoPlano(evento))
+
+  await tx.done
+
+  // Las inspecciones no se tocaron: ni las cerradas ni las que estan en curso.
+  // Cada una sigue con el `formularioVersionId` con el que nacio.
+  return nueva
+}
+
 const formularios: RepositorioFormularios = {
   tiposInspeccion: listarTiposInspeccion,
   tipoInspeccion: obtenerTipoInspeccion,
   formularioVersion: obtenerFormularioVersion,
+  versiones: listarVersiones,
+  borradores: listarBorradores,
+  borrador: obtenerBorrador,
+  abrirBorrador,
+  guardarBorrador,
+  descartarBorrador,
+  publicarBorrador,
 }
 
 // ── Inspecciones ──────────────────────────────────────────────────────

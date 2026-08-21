@@ -12,11 +12,13 @@
  * cuesta escritura, y en campo escribimos mucho mas de lo que leemos.
  */
 
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import {
+  openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction, type StoreNames,
+} from 'idb'
 import type { Reclamo } from './contratos'
 import type {
-  Acta, Evidencia, EventoAuditoria, Firma, FormularioVersion, Inspeccion,
-  ItemCola, ObjetoInspeccionable, Organismo, Respuesta, TipoInspeccion,
+  Acta, BorradorFormulario, Evidencia, EventoAuditoria, Firma, FormularioVersion,
+  Inspeccion, ItemCola, ObjetoInspeccionable, Organismo, Respuesta, TipoInspeccion,
   TipoObjeto, Zona,
 } from '@/dominio/tipos'
 
@@ -42,8 +44,29 @@ export interface EsquemaTero extends DBSchema {
     value: ObjetoInspeccionable
     indexes: { porTipo: string }
   }
-  formularioVersiones: { key: string; value: FormularioVersion }
+  /**
+   * Historial completo de cada formulario: una fila por version publicada.
+   * Nunca se actualiza ni se borra una fila de aca. El indice existe porque el
+   * historial se pide siempre por formulario, y porque publicar necesita saber
+   * cual es el numero de version mas alto sin recorrer toda la tabla.
+   */
+  formularioVersiones: {
+    key: string
+    value: FormularioVersion
+    indexes: { porFormulario: string }
+  }
   tiposInspeccion: { key: string; value: TipoInspeccion }
+  /**
+   * Formularios en edicion. Viven en su propio almacen, separados de las
+   * versiones publicadas: mientras alguien arma un checklist, lo que hay a
+   * medio hacer no puede estar ni por un instante donde una inspeccion en curso
+   * lo pueda leer.
+   */
+  borradores: {
+    key: string
+    value: BorradorFormulario
+    indexes: { porFormulario: string }
+  }
   inspecciones: {
     key: string
     value: Inspeccion
@@ -83,6 +106,13 @@ export interface EsquemaTero extends DBSchema {
 
 export type BdTero = IDBPDatabase<EsquemaTero>
 
+/**
+ * La transaccion de la migracion. Hace falta nombrarla porque un escalon que
+ * agrega un indice sobre un almacen que ya existia solo puede hacerlo a traves
+ * de ella, no del objeto base de datos.
+ */
+type TxMigracion = IDBPTransaction<EsquemaTero, StoreNames<EsquemaTero>[], 'versionchange'>
+
 export const NOMBRE_BD = 'tero'
 
 /**
@@ -90,18 +120,19 @@ export const NOMBRE_BD = 'tero'
  *
  *   1 — esquema inicial.
  *   2 — almacen `reclamos`.
+ *   3 — almacen `borradores` e indice `porFormulario` en `formularioVersiones`.
  *
  * Subir esto NO reinicia nada. Cada escalon se aplica solo si el dispositivo
  * viene de mas atras, de modo que un telefono con inspecciones a medio hacer
  * las conserva. Ver `abrirBd`.
  */
-export const VERSION_BD = 2
+export const VERSION_BD = 3
 
 /** Todos los almacenes, en el orden en que se crean. Lo usa `reiniciar()`. */
 export const ALMACENES = [
   'organismos', 'zonas', 'tiposObjeto', 'objetos', 'formularioVersiones',
   'tiposInspeccion', 'inspecciones', 'respuestas', 'evidencias', 'firmas',
-  'actas', 'auditoria', 'cola', 'correlativos', 'reclamos',
+  'actas', 'auditoria', 'cola', 'correlativos', 'reclamos', 'borradores',
 ] as const
 
 let conexion: Promise<BdTero> | undefined
@@ -124,9 +155,10 @@ export function abrirBd(): Promise<BdTero> {
        * abierta en el telefono de alguien con trabajo de campo sin sincronizar,
        * y ese trabajo no tiene copia en ningun otro lado.
        */
-      upgrade(bd, versionAnterior) {
+      upgrade(bd, versionAnterior, _versionNueva, tx) {
         if (versionAnterior < 1) crearEsquemaV1(bd)
         if (versionAnterior < 2) crearEsquemaV2(bd)
+        if (versionAnterior < 3) crearEsquemaV3(bd, tx)
       },
       blocked() {
         // Otra pestaña con la version vieja impide migrar. No hay nada que
@@ -201,4 +233,31 @@ function crearEsquemaV2(bd: BdTero): void {
   // Para recorrer el circuito al reves: de la inspeccion al reclamo que la
   // origino. Los reclamos sin inspeccion simplemente no entran al indice.
   reclamos.createIndex('porInspeccion', 'inspeccionUuid')
+}
+
+/**
+ * Version 3: edicion de checklists.
+ *
+ * Agrega el almacen de borradores y un indice sobre `formularioVersiones`.
+ * Ninguna de las dos cosas escribe, reescribe ni borra un solo registro: crear
+ * un indice hace que IndexedDB recorra lo que ya hay y lo anote, sin tocarlo.
+ * Un dispositivo que venia de la version 2 conserva intactos sus objetos, sus
+ * inspecciones a medio hacer y sus versiones de formulario publicadas.
+ *
+ * Recibe la transaccion de migracion porque `formularioVersiones` ya existia
+ * desde la version 1: un indice sobre un almacen preexistente se agrega desde
+ * la transaccion, no desde la base.
+ */
+function crearEsquemaV3(bd: BdTero, tx: TxMigracion): void {
+  // El historial de un formulario se pide siempre entero y por formulario.
+  tx.objectStore('formularioVersiones').createIndex('porFormulario', 'formularioId')
+
+  const borradores = bd.createObjectStore('borradores', { keyPath: 'id' })
+
+  // `unique` es la regla «un borrador por formulario» puesta donde no se puede
+  // esquivar. Que dos personas abran a la vez el mismo checklist y cada una
+  // termine con su copia significa que una de las dos va a perder su trabajo
+  // sin enterarse; con el indice unico, la segunda alta FALLA y el codigo
+  // devuelve el borrador que ya estaba abierto.
+  borradores.createIndex('porFormulario', 'formularioId', { unique: true })
 }

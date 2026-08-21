@@ -15,7 +15,7 @@
  */
 
 import type {
-  Acta, Evidencia, EventoAuditoria, FechaHora, Firma, FormularioVersion,
+  Acta, BorradorFormulario, Evidencia, EventoAuditoria, FechaHora, Firma, FormularioVersion,
   Inspeccion, ItemCola, ObjetoInspeccionable, Organismo, Punto, Respuesta,
   TipoInspeccion, TipoObjeto, Uuid, Zona, EstadoInspeccion,
 } from '@/dominio/tipos'
@@ -50,6 +50,38 @@ export interface RepositorioFormularios {
   tipoInspeccion(id: Uuid): Promise<TipoInspeccion | undefined>
   /** Devuelve la version exacta, no la vigente: las actas viejas dependen de esto. */
   formularioVersion(id: Uuid): Promise<FormularioVersion | undefined>
+
+  // ── Edicion de checklists ───────────────────────────────────────────
+  //
+  // Toda esta parte existe para que cada direccion arme sus propios
+  // formularios sin programar. La regla que la gobierna es una sola: una
+  // version publicada NUNCA se modifica. Editar produce una version nueva.
+
+  /** Historial completo de un formulario, de la mas nueva a la mas vieja. */
+  versiones(formularioId: Uuid): Promise<FormularioVersion[]>
+
+  borradores(): Promise<BorradorFormulario[]>
+  borrador(id: Uuid): Promise<BorradorFormulario | undefined>
+
+  /**
+   * Abre un borrador copiando la version vigente del tipo de inspeccion.
+   * Si ya hay un borrador abierto para ese formulario, devuelve ese: dos
+   * personas editando en paralelo el mismo checklist terminarian pisandose.
+   */
+  abrirBorrador(tipoInspeccionId: Uuid, autor: string): Promise<BorradorFormulario>
+
+  guardarBorrador(borrador: BorradorFormulario): Promise<void>
+  descartarBorrador(id: Uuid): Promise<void>
+
+  /**
+   * Publica el borrador como `FormularioVersion` nueva e inmutable, con el
+   * numero de version siguiente, y apunta el tipo de inspeccion a ella.
+   *
+   * Las inspecciones en curso y las ya cerradas siguen apuntando a la version
+   * con la que se completaron. Eso no es un detalle de implementacion: es lo
+   * que permite reconstruir un acta de hace ocho meses tal como se emitio.
+   */
+  publicarBorrador(id: Uuid, autor: string): Promise<FormularioVersion>
 }
 
 export interface RepositorioInspecciones {
