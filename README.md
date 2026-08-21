@@ -69,9 +69,10 @@ Detalle y resolución de problemas en
 [`documentacion/instalacion.md`](documentacion/instalacion.md).
 
 > **Estado del proyecto.** La aplicación de campo está en construcción y ya se
-> puede usar. El backend está definido —modelo de datos, especificación de API e
-> infraestructura— pero todavía no implementado: hoy la aplicación guarda todo en
-> el dispositivo. Ver [ROADMAP](ROADMAP.md).
+> puede usar. El backend está definido —modelo de datos, [especificación de la
+> API](documentacion/api/openapi.yaml) con los caminos de los siete módulos del
+> piloto, e infraestructura— pero todavía no implementado: hoy la aplicación
+> guarda todo en el dispositivo. Ver [ROADMAP](ROADMAP.md).
 
 ## Cómo está organizado
 
@@ -109,7 +110,7 @@ adoptable por un gobierno que necesita auditar lo que usa.
 | [Instalación](documentacion/instalacion.md) | Levantar el entorno |
 | [Modelo de datos](documentacion/modelo-de-datos.md) | Las tablas y las dos decisiones que sostienen el resto |
 | [Replicación](documentacion/replicacion.md) | Cómo lo adopta otra intendencia |
-| [API](documentacion/api/openapi.yaml) | Especificación OpenAPI (borrador) |
+| [API](documentacion/api/README.md) | El contrato REST: OpenAPI 3.1, autenticación y cómo integrarse |
 
 ## Contribuir
 

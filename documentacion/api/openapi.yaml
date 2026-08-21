@@ -9,23 +9,76 @@ openapi: 3.1.0
 
 info:
   title: API de Tero
-  version: 0.1.0-borrador
+  version: 0.2.0-borrador
   summary: Inspecciones municipales
   description: |
-    Estado: **borrador**. Los caminos se definen junto con el esqueleto del
-    backend (ver ROADMAP, etapa 1). Este archivo fija desde ahora las decisiones
-    de diseño que después son caras de cambiar.
+    Estado: **borrador**. Los caminos de esta versión cubren los siete módulos
+    del alcance del piloto (ver ROADMAP) y son el contrato contra el que se
+    implementa el backend. Se consideran estables en forma, no en detalle:
+    pueden agregarse campos, no cambiar de significado los que ya están.
+
+    ## Las cuatro decisiones que no se van a mover
 
     **Sincronización.** El alta de una inspección es idempotente por el campo
     `uuid` que genera el dispositivo. Reenviar la misma inspección devuelve la
-    que ya existe, con 200 en vez de 201. Es lo que permite que el celular
-    reintente sin miedo cuando la conexión se corta a mitad de camino.
+    que ya existe, con `200` en vez de `201`. Es lo que permite que el celular
+    reintente sin miedo cuando la conexión se corta a mitad de camino. La misma
+    regla vale para objetos, evidencias, firmas y reclamos: todos llevan un
+    identificador generado en el origen.
 
-    **Territorio.** Las geometrías van y vienen en GeoJSON, con coordenadas en
-    WGS 84 (EPSG:4326).
+    **Territorio.** Las geometrías van y vienen en **GeoJSON**, con coordenadas
+    en WGS 84 (EPSG:4326), orden `[lon, lat]`. Se distinguen de las *lecturas de
+    GPS* (`Ubicacion`), que llevan además la precisión informada por el
+    dispositivo: una geometría es un dato del territorio, una lectura es un dato
+    del sensor, y confundirlos hace imposible auditar dónde estaba parado el
+    inspector cuando cerró un acta.
 
     **Multi-organismo.** El organismo se deduce del token, nunca se pasa por
-    parámetro: un usuario no puede leer ni escribir datos de otro gobierno local.
+    parámetro: un usuario no puede leer ni escribir datos de otro gobierno
+    local. No existe ningún camino que acepte `organismoId` en la petición.
+
+    **Inmutabilidad.** Una `FormularioVersion` publicada no se modifica jamás.
+    No hay `PUT` ni `PATCH` sobre ella. Editar un checklist produce una versión
+    nueva, y cada inspección guarda contra cuál se completó, porque un acta de
+    hace ocho meses tiene que poder reconstruirse tal como se emitió.
+
+    ## Convenciones
+
+    | | |
+    |---|---|
+    | Nombres | `camelCase` en JSON, en español, idénticos a `app-campo/src/dominio/tipos.ts` |
+    | Identificadores | UUID v4 en texto |
+    | Fechas | ISO 8601 con zona horaria (`2026-08-21T14:32:00-03:00`) |
+    | Listados | Sobre `{ datos, paginacion }`, con `pagina` y `porPagina` |
+    | Errores | RFC 9457 — `application/problem+json` |
+    | Binarios | Se suben como `multipart/form-data` y se descargan por camino propio |
+
+    Los nombres coinciden con los del cliente y no con los de la base
+    (`snake_case`, ver `documentacion/modelo-de-datos.md`): la traducción se
+    paga una vez en el backend y no en cada integración.
+
+    ## Autenticación y roles
+
+    OpenID Connect contra Keycloak. El token de acceso es un JWT que se envía en
+    `Authorization: Bearer`. Del token se leen el organismo y los roles:
+
+    - `tero-inspector` — ejecuta inspecciones asignadas, sube evidencia y firma.
+    - `tero-supervisor` — planifica, asigna, emite y notifica actas.
+    - `tero-administrador` — configura territorio, catálogos y checklists.
+    - `tero-lectura` — solo consulta, incluido el tablero de indicadores.
+
+    Cada operación declara el rol mínimo. Un token sin el rol necesario recibe
+    `403`, nunca `404`: ocultar la existencia del recurso complicaría el
+    diagnóstico sin agregar seguridad real dentro de un mismo organismo.
+
+    Dos caminos son públicos y no llevan token, ambos del canal ciudadano: el
+    alta de un reclamo y su consulta por código.
+
+    ## Versionado
+
+    La versión mayor va en el camino (`/api/v1`). Agregar campos opcionales o
+    caminos nuevos no cambia la versión. Quitar un campo, cambiar su tipo o su
+    significado exige `/api/v2` y un período de convivencia de las dos.
   license:
     name: Apache-2.0
     identifier: Apache-2.0
@@ -43,10 +96,3325 @@ servers:
 security:
   - openId: []
 
+tags:
+  - name: Organismo
+    description: El gobierno local dueño de los datos del token.
+  - name: Territorio
+    description: >
+      Zonas, tipos de objeto y los objetos inspeccionables. Es el módulo del que
+      cuelga todo lo demás: sin objetos no hay nada que inspeccionar.
+  - name: Catálogo de inspecciones
+    description: >
+      Tipos de inspección y checklists versionados. Cada dirección define los
+      suyos sin programar, y una versión publicada nunca se modifica.
+  - name: Planificación
+    description: Zonas, cuadrillas, calendario y prioridad.
+  - name: Inspección en campo
+    description: >
+      Lo que produce el inspector en la calle: respuestas, evidencia con
+      ubicación y hora, firma y cierre. Todo idempotente, porque llega desde un
+      dispositivo que estuvo sin señal.
+  - name: Actas
+    description: Emisión numerada, plazo de subsanación y notificación.
+  - name: Trazabilidad
+    description: Historial inmutable por entidad, de solo agregado.
+  - name: Indicadores
+    description: Cumplimiento, tiempos de respuesta y cobertura por zona.
+  - name: Sincronización
+    description: Traer del servidor lo que cambió desde la última bajada.
+  - name: Reclamos
+    description: >
+      Canal ciudadano. **Posterior al piloto** — está especificado acá porque la
+      aplicación de campo ya lo implementa contra el almacenamiento local, no
+      porque forme parte del compromiso del MVP.
+
+paths:
+
+  # ── Organismo ───────────────────────────────────────────────────────
+
+  /organismo:
+    get:
+      tags: [Organismo]
+      summary: El organismo del token
+      description: |
+        Devuelve el gobierno local al que pertenece quien consulta. No recibe
+        parámetros a propósito: es el único lugar donde se puede saber de qué
+        organismo son los datos que se están viendo.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: obtenerOrganismo
+      responses:
+        '200':
+          description: El organismo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organismo'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+
+  # ── Territorio ──────────────────────────────────────────────────────
+
+  /zonas:
+    get:
+      tags: [Territorio]
+      summary: Listar zonas
+      description: |
+        Divisiones operativas de inspección.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: listarZonas
+      parameters:
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
+      responses:
+        '200':
+          description: Zonas del organismo.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, paginacion]
+                properties:
+                  datos:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Zona'
+                  paginacion:
+                    $ref: '#/components/schemas/Paginacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+    post:
+      tags: [Territorio]
+      summary: Crear una zona
+      description: |
+        Rol mínimo: `tero-administrador`.
+      operationId: crearZona
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ZonaEntrada'
+      responses:
+        '201':
+          description: Zona creada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zona'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+
+  /zonas/{zonaId}:
+    parameters:
+      - $ref: '#/components/parameters/ZonaId'
+    get:
+      tags: [Territorio]
+      summary: Obtener una zona
+      description: |
+        Rol mínimo: `tero-lectura`.
+      operationId: obtenerZona
+      responses:
+        '200':
+          description: La zona.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zona'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+    put:
+      tags: [Territorio]
+      summary: Modificar una zona
+      description: |
+        Rol mínimo: `tero-administrador`.
+      operationId: modificarZona
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ZonaEntrada'
+      responses:
+        '200':
+          description: Zona modificada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zona'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /tipos-objeto:
+    get:
+      tags: [Territorio]
+      summary: Listar tipos de objeto
+      description: |
+        Qué clase de cosas inspecciona este organismo: luminaria, contenedor,
+        obra, comercio, señalización, parador.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: listarTiposObjeto
+      responses:
+        '200':
+          description: Tipos de objeto del organismo.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TipoObjeto'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+    post:
+      tags: [Territorio]
+      summary: Crear un tipo de objeto
+      description: |
+        Rol mínimo: `tero-administrador`.
+      operationId: crearTipoObjeto
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TipoObjetoEntrada'
+      responses:
+        '201':
+          description: Tipo de objeto creado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TipoObjeto'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+
+  /tipos-objeto/{tipoObjetoId}:
+    parameters:
+      - $ref: '#/components/parameters/TipoObjetoId'
+    put:
+      tags: [Territorio]
+      summary: Modificar un tipo de objeto
+      description: |
+        Rol mínimo: `tero-administrador`.
+      operationId: modificarTipoObjeto
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TipoObjetoEntrada'
+      responses:
+        '200':
+          description: Tipo de objeto modificado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TipoObjeto'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /objetos:
+    get:
+      tags: [Territorio]
+      summary: Buscar objetos inspeccionables
+      description: |
+        El listado del mapa y del buscador. Los filtros se combinan con «y».
+
+        `cerca` resuelve la consulta espacial que usa la aplicación de campo
+        para mostrar «lo que tengo alrededor»: se apoya en el índice GiST sobre
+        la geometría, así que es barata aunque la tabla sea grande.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: buscarObjetos
+      parameters:
+        - name: tipoObjetoId
+          in: query
+          description: Un solo tipo, o varios repitiendo el parámetro.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/Uuid'
+        - name: zonaId
+          in: query
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - name: texto
+          in: query
+          description: Busca en `codigo`, `denominacion` y `direccion`.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+        - name: estado
+          in: query
+          schema:
+            type: string
+            enum: [activo, inactivo, baja]
+        - name: cerca
+          in: query
+          description: |
+            `lon,lat,radioMetros`. Devuelve los objetos cuya geometría cae dentro
+            del radio, ordenados por distancia ascendente.
+          example: '-56.1645,-34.9011,500'
+          schema:
+            type: string
+            pattern: '^-?\d+(\.\d+)?,-?\d+(\.\d+)?,\d+$'
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
+      responses:
+        '200':
+          description: Objetos que cumplen el filtro.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, paginacion]
+                properties:
+                  datos:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ObjetoInspeccionable'
+                  paginacion:
+                    $ref: '#/components/schemas/Paginacion'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+    post:
+      tags: [Territorio]
+      summary: Dar de alta un objeto
+      description: |
+        **Idempotente por `id`.** El identificador lo genera el dispositivo, para
+        que un alta hecha sin señal pueda reenviarse sin duplicar. Si el objeto
+        ya existe se devuelve el que hay, con `200`.
+
+        Rol mínimo: `tero-inspector`.
+      operationId: crearObjeto
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ObjetoEntrada'
+      responses:
+        '200':
+          description: El objeto ya existía con ese `id`. No se modificó nada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjetoInspeccionable'
+        '201':
+          description: Objeto creado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjetoInspeccionable'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '409':
+          description: |
+            Ya hay otro objeto con ese `codigo` en el organismo. El `codigo` es
+            único porque es el padrón o número de habilitación con el que la
+            intendencia identifica la cosa en sus otros sistemas.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  /objetos/{objetoId}:
+    parameters:
+      - $ref: '#/components/parameters/ObjetoId'
+    get:
+      tags: [Territorio]
+      summary: Obtener un objeto
+      description: |
+        Rol mínimo: `tero-lectura`.
+      operationId: obtenerObjeto
+      responses:
+        '200':
+          description: El objeto.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjetoInspeccionable'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+    put:
+      tags: [Territorio]
+      summary: Modificar un objeto
+      description: |
+        Reemplaza los datos editables. Ni `id` ni `creadoEn` se tocan.
+
+        Rol mínimo: `tero-inspector`.
+      operationId: modificarObjeto
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ObjetoEntrada'
+      responses:
+        '200':
+          description: Objeto modificado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjetoInspeccionable'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /objetos/{objetoId}/inspecciones:
+    parameters:
+      - $ref: '#/components/parameters/ObjetoId'
+      - $ref: '#/components/parameters/Pagina'
+      - $ref: '#/components/parameters/PorPagina'
+    get:
+      tags: [Territorio]
+      summary: Inspecciones de un objeto
+      description: |
+        La historia de inspecciones de una cosa concreta, de la más reciente a la
+        más vieja. Es lo que se ve al abrir la ficha en el mapa.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: listarInspeccionesDeObjeto
+      responses:
+        '200':
+          description: Inspecciones del objeto.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, paginacion]
+                properties:
+                  datos:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Inspeccion'
+                  paginacion:
+                    $ref: '#/components/schemas/Paginacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  # ── Catálogo de inspecciones ────────────────────────────────────────
+
+  /tipos-inspeccion:
+    get:
+      tags: [Catálogo de inspecciones]
+      summary: Listar tipos de inspección
+      description: |
+        Qué inspecciones hace el organismo y con qué checklist. Cada una apunta a
+        la versión de formulario vigente hoy.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: listarTiposInspeccion
+      parameters:
+        - name: tipoObjetoId
+          in: query
+          description: Solo los tipos de inspección que aplican a esa clase de objeto.
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - name: direccionResponsable
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tipos de inspección del organismo.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TipoInspeccion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+    post:
+      tags: [Catálogo de inspecciones]
+      summary: Crear un tipo de inspección
+      description: |
+        Rol mínimo: `tero-administrador`.
+      operationId: crearTipoInspeccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TipoInspeccionEntrada'
+      responses:
+        '201':
+          description: Tipo de inspección creado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TipoInspeccion'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+
+  /tipos-inspeccion/{tipoInspeccionId}:
+    parameters:
+      - $ref: '#/components/parameters/TipoInspeccionId'
+    get:
+      tags: [Catálogo de inspecciones]
+      summary: Obtener un tipo de inspección
+      description: |
+        Rol mínimo: `tero-lectura`.
+      operationId: obtenerTipoInspeccion
+      responses:
+        '200':
+          description: El tipo de inspección.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TipoInspeccion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+    put:
+      tags: [Catálogo de inspecciones]
+      summary: Modificar un tipo de inspección
+      description: |
+        Cambia el nombre, la dirección responsable, el plazo por defecto o los
+        tipos de objeto a los que aplica. **No cambia el checklist**: para eso se
+        abre un borrador y se publica una versión nueva.
+
+        Rol mínimo: `tero-administrador`.
+      operationId: modificarTipoInspeccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TipoInspeccionEntrada'
+      responses:
+        '200':
+          description: Tipo de inspección modificado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TipoInspeccion'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /formularios/{formularioId}/versiones:
+    parameters:
+      - $ref: '#/components/parameters/FormularioId'
+    get:
+      tags: [Catálogo de inspecciones]
+      summary: Historial de versiones de un formulario
+      description: |
+        De la más nueva a la más vieja. Ninguna de estas versiones puede
+        modificarse: son el respaldo de las actas emitidas con cada una.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: listarVersionesFormulario
+      responses:
+        '200':
+          description: Versiones del formulario.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FormularioVersion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /formulario-versiones/{formularioVersionId}:
+    parameters:
+      - $ref: '#/components/parameters/FormularioVersionId'
+    get:
+      tags: [Catálogo de inspecciones]
+      summary: Obtener una versión de formulario
+      description: |
+        Devuelve **la versión exacta que se pide**, no la vigente. Es el camino
+        que usa la reconstrucción de un acta vieja, y el motivo por el que las
+        versiones son inmutables.
+
+        La respuesta lleva `Cache-Control: immutable`: una vez bajada, el
+        dispositivo no necesita volver a pedirla nunca.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: obtenerFormularioVersion
+      responses:
+        '200':
+          description: La versión de formulario.
+          headers:
+            Cache-Control:
+              description: '`public, max-age=31536000, immutable`'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormularioVersion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /borradores:
+    get:
+      tags: [Catálogo de inspecciones]
+      summary: Listar borradores de checklist
+      description: |
+        Checklists a medio armar. Un borrador no afecta a ninguna inspección en
+        curso hasta que se publica.
+
+        Rol mínimo: `tero-administrador`.
+      operationId: listarBorradores
+      responses:
+        '200':
+          description: Borradores abiertos del organismo.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BorradorFormulario'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+    post:
+      tags: [Catálogo de inspecciones]
+      summary: Abrir un borrador
+      description: |
+        Copia la versión vigente del tipo de inspección a un borrador editable.
+
+        **Si ya hay un borrador abierto para ese formulario devuelve ese**, con
+        `200`. Dos personas editando en paralelo el mismo checklist terminarían
+        pisándose, y el trabajo perdido sería el de la que guardó primero.
+
+        Rol mínimo: `tero-administrador`.
+      operationId: abrirBorrador
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tipoInspeccionId]
+              properties:
+                tipoInspeccionId:
+                  $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Ya había un borrador abierto para ese formulario.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorradorFormulario'
+        '201':
+          description: Borrador abierto.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorradorFormulario'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+
+  /borradores/{borradorId}:
+    parameters:
+      - $ref: '#/components/parameters/BorradorId'
+    get:
+      tags: [Catálogo de inspecciones]
+      summary: Obtener un borrador
+      description: |
+        Rol mínimo: `tero-administrador`.
+      operationId: obtenerBorrador
+      responses:
+        '200':
+          description: El borrador.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorradorFormulario'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+    put:
+      tags: [Catálogo de inspecciones]
+      summary: Guardar un borrador
+      description: |
+        Reemplaza título, secciones e incumplimientos. Se llama seguido mientras
+        alguien arma el checklist.
+
+        Rol mínimo: `tero-administrador`.
+      operationId: guardarBorrador
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorradorEntrada'
+      responses:
+        '200':
+          description: Borrador guardado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorradorFormulario'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+    delete:
+      tags: [Catálogo de inspecciones]
+      summary: Descartar un borrador
+      description: |
+        Tira el trabajo no publicado. No afecta a ninguna versión existente.
+
+        Rol mínimo: `tero-administrador`.
+      operationId: descartarBorrador
+      responses:
+        '204':
+          description: Borrador descartado.
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /borradores/{borradorId}/publicacion:
+    parameters:
+      - $ref: '#/components/parameters/BorradorId'
+    post:
+      tags: [Catálogo de inspecciones]
+      summary: Publicar un borrador
+      description: |
+        Convierte el borrador en una `FormularioVersion` nueva e inmutable, con
+        el número de versión siguiente, y apunta el tipo de inspección a ella. El
+        borrador deja de existir.
+
+        Las inspecciones en curso y las ya cerradas **siguen apuntando a la
+        versión con la que se completaron**. No es un detalle de implementación:
+        es lo que permite reconstruir un acta de hace ocho meses tal como se
+        emitió.
+
+        Rol mínimo: `tero-administrador`.
+      operationId: publicarBorrador
+      responses:
+        '201':
+          description: Versión publicada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormularioVersion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '422':
+          description: |
+            El borrador no está en condiciones de publicarse: no tiene preguntas,
+            hay ids repetidos, o una pregunta apunta a un incumplimiento que no
+            está en el catálogo del propio formulario.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  # ── Planificación e inspecciones ────────────────────────────────────
+
+  /inspecciones:
+    get:
+      tags: [Planificación]
+      summary: Buscar inspecciones
+      description: |
+        Sirve a las tres vistas que más se usan: la lista del día del inspector
+        (`asignadoA` + `estado`), la bandeja del supervisor (`estado=pendiente`)
+        y la agenda (`desde`/`hasta`).
+
+        Rol mínimo: `tero-lectura`. Un token con solo `tero-inspector` recibe
+        únicamente las inspecciones que tiene asignadas, aunque no pase el
+        filtro: el alcance se recorta en el servidor, no en la vista.
+      operationId: buscarInspecciones
+      parameters:
+        - name: estado
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/EstadoInspeccion'
+        - name: asignadoA
+          in: query
+          description: '`sub` del usuario en Keycloak, o `sin-asignar`.'
+          schema:
+            type: string
+        - name: objetoId
+          in: query
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - name: zonaId
+          in: query
+          description: Zona del objeto inspeccionado.
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - name: tipoInspeccionId
+          in: query
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - name: origen
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrigenInspeccion'
+        - name: prioridad
+          in: query
+          schema:
+            $ref: '#/components/schemas/Prioridad'
+        - name: desde
+          in: query
+          description: Filtra por `programadaPara`, inclusive.
+          schema:
+            $ref: '#/components/schemas/FechaHora'
+        - name: hasta
+          in: query
+          description: Filtra por `programadaPara`, inclusive.
+          schema:
+            $ref: '#/components/schemas/FechaHora'
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
+      responses:
+        '200':
+          description: Inspecciones que cumplen el filtro.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, paginacion]
+                properties:
+                  datos:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Inspeccion'
+                  paginacion:
+                    $ref: '#/components/schemas/Paginacion'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+    post:
+      tags: [Planificación]
+      summary: Crear una inspección
+      description: |
+        **Idempotente por `uuid`.** El `uuid` lo genera quien crea la inspección
+        —el planificador en el escritorio o el celular del inspector que la
+        levanta de oficio en la calle— y es la clave de toda la sincronización.
+
+        Reenviar la misma inspección devuelve la que ya existe, con `200` en vez
+        de `201`, y **no** modifica nada. Es lo que permite que el celular
+        reintente sin miedo cuando la conexión se corta a mitad de camino.
+
+        `formularioVersionId` no se manda: lo resuelve el servidor tomando la
+        versión vigente del tipo de inspección en el momento del alta, y a partir
+        de ahí no cambia nunca más para esa inspección.
+
+        Rol mínimo: `tero-inspector` para `origen=oficio`; `tero-supervisor`
+        para `plan` y `reclamo`.
+      operationId: crearInspeccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InspeccionEntrada'
+      responses:
+        '200':
+          description: Ya existía una inspección con ese `uuid`. No se modificó nada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inspeccion'
+        '201':
+          description: Inspección creada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inspeccion'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '422':
+          description: |
+            El tipo de inspección no aplica al tipo del objeto indicado.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  /inspecciones/{uuid}:
+    parameters:
+      - $ref: '#/components/parameters/InspeccionUuid'
+    get:
+      tags: [Planificación]
+      summary: Obtener una inspección
+      description: |
+        Rol mínimo: `tero-lectura`.
+      operationId: obtenerInspeccion
+      responses:
+        '200':
+          description: La inspección.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inspeccion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+    patch:
+      tags: [Planificación]
+      summary: Reprogramar o reasignar una inspección
+      description: |
+        Cambia lo que la planificación puede cambiar: a quién está asignada, para
+        cuándo, con qué prioridad. Solo los campos presentes se modifican.
+
+        **No cierra la inspección** ni fija su resultado: para eso está el cierre,
+        que además exige la respuesta del checklist.
+
+        Rol mínimo: `tero-supervisor`.
+      operationId: modificarInspeccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                asignadoA:
+                  type: [string, 'null']
+                  description: '`sub` del usuario, o `null` para desasignar.'
+                programadaPara:
+                  oneOf:
+                    - $ref: '#/components/schemas/FechaHora'
+                    - type: 'null'
+                prioridad:
+                  $ref: '#/components/schemas/Prioridad'
+      responses:
+        '200':
+          description: Inspección modificada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inspeccion'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          description: La inspección ya está cerrada. Una inspección cerrada no se reprograma.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  # ── Inspección en campo ─────────────────────────────────────────────
+
+  /inspecciones/{uuid}/respuesta:
+    parameters:
+      - $ref: '#/components/parameters/InspeccionUuid'
+    get:
+      tags: [Inspección en campo]
+      summary: Obtener la respuesta del checklist
+      description: |
+        Rol mínimo: `tero-lectura`.
+      operationId: obtenerRespuesta
+      responses:
+        '200':
+          description: La respuesta.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Respuesta'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          description: La inspección no existe, o todavía no tiene respuesta.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+    put:
+      tags: [Inspección en campo]
+      summary: Guardar la respuesta del checklist
+      description: |
+        Hay **una sola respuesta por inspección**, así que el verbo es `PUT` y
+        reenviar la misma no duplica nada. El celular la manda entera cada vez:
+        es chica, y mandar el estado completo evita tener que resolver mezclas
+        entre lo que quedó en el dispositivo y lo que llegó antes.
+
+        `formularioVersionId` tiene que coincidir con el de la inspección. Si no
+        coincide se rechaza con `422`: significaría estar guardando respuestas de
+        un checklist contra otro, y el acta que salga de ahí no se sostiene.
+
+        Rol mínimo: `tero-inspector`, y tiene que ser quien la tiene asignada.
+      operationId: guardarRespuesta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RespuestaEntrada'
+      responses:
+        '200':
+          description: Respuesta guardada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Respuesta'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          description: La inspección ya está cerrada. Las respuestas no se editan después del acta.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+        '422':
+          description: |
+            `formularioVersionId` no es el de la inspección, o falta una pregunta
+            marcada como obligatoria.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  /inspecciones/{uuid}/evidencias:
+    parameters:
+      - $ref: '#/components/parameters/InspeccionUuid'
+    get:
+      tags: [Inspección en campo]
+      summary: Listar la evidencia de una inspección
+      description: |
+        Metadatos, no contenido. Cada elemento trae `contenidoUrl` para bajar el
+        archivo cuando haga falta.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: listarEvidencias
+      responses:
+        '200':
+          description: Evidencia de la inspección.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Evidencia'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+    post:
+      tags: [Inspección en campo]
+      summary: Subir una evidencia
+      description: |
+        **Idempotente por `id`**, que genera el dispositivo. Si ya se recibió esa
+        evidencia se devuelve la que hay con `200` y no se vuelve a guardar el
+        archivo: una foto de tres megas reenviada cuatro veces por una conexión
+        mala no puede convertirse en doce megas en el almacenamiento.
+
+        `hash` es el sha256 del archivo calculado **en el dispositivo**. El
+        servidor lo recalcula y rechaza con `422` si no coincide. Eso es lo que
+        después permite sostener ante un recurso que la foto es la que se tomó.
+
+        `tomadaEn` y `ubicacion` son del momento de la captura, no del de la
+        subida, que puede ser días después.
+
+        Rol mínimo: `tero-inspector`, y tiene que ser quien la tiene asignada.
+      operationId: subirEvidencia
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [id, tipo, archivo, tomadaEn, hash]
+              properties:
+                id:
+                  $ref: '#/components/schemas/Uuid'
+                tipo:
+                  type: string
+                  enum: [foto, audio]
+                archivo:
+                  type: string
+                  format: binary
+                  description: JPEG, PNG, WebP o audio. Máximo 25 MB.
+                tomadaEn:
+                  $ref: '#/components/schemas/FechaHora'
+                ubicacion:
+                  $ref: '#/components/schemas/Ubicacion'
+                hash:
+                  type: string
+                  pattern: '^[0-9a-f]{64}$'
+                  description: sha256 en hexadecimal minúscula.
+                preguntaId:
+                  type: string
+                  description: Pregunta del checklist que originó la foto, si la responde.
+            encoding:
+              ubicacion:
+                contentType: application/json
+      responses:
+        '200':
+          description: Ya se había recibido esa evidencia. No se guardó de nuevo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evidencia'
+        '201':
+          description: Evidencia guardada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evidencia'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          description: La inspección ya está cerrada.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+        '413':
+          description: El archivo supera el máximo.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+        '422':
+          description: El sha256 recalculado no coincide con el declarado.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  /evidencias/{evidenciaId}:
+    parameters:
+      - $ref: '#/components/parameters/EvidenciaId'
+    delete:
+      tags: [Inspección en campo]
+      summary: Borrar una evidencia
+      description: |
+        Solo mientras la inspección esté abierta. Una vez emitida el acta, la
+        evidencia es parte del expediente y no se borra: queda el registro de
+        auditoría de que se intentó.
+
+        Rol mínimo: `tero-inspector`, y tiene que ser quien la tiene asignada.
+      operationId: borrarEvidencia
+      responses:
+        '204':
+          description: Evidencia borrada.
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          description: La inspección ya está cerrada.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  /evidencias/{evidenciaId}/contenido:
+    parameters:
+      - $ref: '#/components/parameters/EvidenciaId'
+    get:
+      tags: [Inspección en campo]
+      summary: Descargar el archivo de una evidencia
+      description: |
+        Devuelve el binario. El contenido es inmutable, así que la respuesta
+        lleva `ETag` y admite `If-None-Match`.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: descargarEvidencia
+      responses:
+        '200':
+          description: El archivo.
+          headers:
+            ETag:
+              description: El sha256 de la evidencia.
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: No cambió — nunca cambia.
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /inspecciones/{uuid}/firma:
+    parameters:
+      - $ref: '#/components/parameters/InspeccionUuid'
+    get:
+      tags: [Inspección en campo]
+      summary: Obtener la firma
+      description: |
+        Rol mínimo: `tero-lectura`.
+      operationId: obtenerFirma
+      responses:
+        '200':
+          description: La firma.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Firma'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          description: La inspección no existe, o todavía no fue firmada.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+    put:
+      tags: [Inspección en campo]
+      summary: Firmar en pantalla
+      description: |
+        Una sola firma por inspección, de ahí el `PUT`.
+
+        Cuando la persona **se niega a firmar** se manda igual, con
+        `seNegoAFirmar=true` y sin imagen: la negativa es un hecho que el acta
+        tiene que registrar, no la ausencia de un dato.
+
+        Rol mínimo: `tero-inspector`, y tiene que ser quien la tiene asignada.
+      operationId: guardarFirma
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [firmante, documento, firmadoEn, seNegoAFirmar]
+              properties:
+                firmante:
+                  type: string
+                  maxLength: 160
+                documento:
+                  type: string
+                  description: Cédula o documento de quien firma, como lo declara.
+                  maxLength: 40
+                imagen:
+                  type: string
+                  format: binary
+                  description: Trazo de la firma en PNG. Obligatorio salvo negativa.
+                firmadoEn:
+                  $ref: '#/components/schemas/FechaHora'
+                seNegoAFirmar:
+                  type: boolean
+      responses:
+        '200':
+          description: Firma guardada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Firma'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          description: La inspección ya está cerrada.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+        '422':
+          description: Falta la imagen y no se declaró negativa a firmar.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  /inspecciones/{uuid}/firma/imagen:
+    parameters:
+      - $ref: '#/components/parameters/InspeccionUuid'
+    get:
+      tags: [Inspección en campo]
+      summary: Descargar el trazo de la firma
+      description: |
+        Rol mínimo: `tero-lectura`.
+      operationId: descargarFirma
+      responses:
+        '200':
+          description: El PNG del trazo.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          description: No hay firma, o se registró negativa a firmar.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  /inspecciones/{uuid}/cierre:
+    parameters:
+      - $ref: '#/components/parameters/InspeccionUuid'
+    post:
+      tags: [Inspección en campo]
+      summary: Cerrar la inspección
+      description: |
+        El momento en que la inspección deja de ser editable. Fija `resultado`,
+        `ejecutadaEn` y `ubicacionEjecucion` —dónde estaba parado el inspector—,
+        y pasa el estado a `cerrada`.
+
+        **Idempotente.** Cerrar dos veces devuelve la inspección ya cerrada con
+        `200`, sin cambiar `ejecutadaEn`: el celular reintenta hasta confirmar y
+        no puede correr la hora de ejecución con cada reintento.
+
+        Después del cierre el servidor evalúa qué corresponde: si hay
+        incumplimientos constatados, queda lista para emitir acta, y al vencer el
+        plazo de subsanación programa la reinspección con `padreUuid` apuntando a
+        esta.
+
+        Rol mínimo: `tero-inspector`, y tiene que ser quien la tiene asignada.
+      operationId: cerrarInspeccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resultado, ejecutadaEn]
+              properties:
+                resultado:
+                  $ref: '#/components/schemas/ResultadoInspeccion'
+                ejecutadaEn:
+                  $ref: '#/components/schemas/FechaHora'
+                ubicacionEjecucion:
+                  $ref: '#/components/schemas/Ubicacion'
+      responses:
+        '200':
+          description: Ya estaba cerrada. No se modificó nada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inspeccion'
+        '201':
+          description: Inspección cerrada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inspeccion'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '422':
+          description: |
+            Falta la respuesta del checklist, falta una respuesta obligatoria, o
+            el resultado declarado contradice los incumplimientos constatados
+            (`conforme` con faltas, o `no_conforme` sin ninguna).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  # ── Actas ───────────────────────────────────────────────────────────
+
+  /inspecciones/{uuid}/acta:
+    parameters:
+      - $ref: '#/components/parameters/InspeccionUuid'
+    get:
+      tags: [Actas]
+      summary: Obtener el acta de una inspección
+      description: |
+        Rol mínimo: `tero-lectura`.
+      operationId: obtenerActaDeInspeccion
+      responses:
+        '200':
+          description: El acta.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Acta'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          description: La inspección no existe, o todavía no tiene acta emitida.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+    post:
+      tags: [Actas]
+      summary: Emitir el acta
+      description: |
+        Reserva el correlativo del organismo, arma el PDF con las faltas
+        constatadas y su encuadre normativo, y calcula el plazo de subsanación
+        —el de la falta más grave, o el del tipo de inspección si ninguna define
+        uno propio.
+
+        **Idempotente.** Emitir dos veces devuelve el acta ya emitida con `200`.
+        El correlativo se reserva una sola vez: un reintento del celular no puede
+        quemar un número de acta.
+
+        El PDF se reconstruye siempre contra la `formularioVersionId` de la
+        inspección, no contra el checklist vigente.
+
+        Rol mínimo: `tero-inspector`.
+      operationId: emitirActa
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plazoSubsanacionDias:
+                  type: integer
+                  minimum: 0
+                  maximum: 365
+                  description: |
+                    Pisa el plazo calculado. Se usa cuando el supervisor otorga
+                    uno distinto por alguna razón que queda en el acta.
+                observaciones:
+                  type: string
+                  maxLength: 4000
+      responses:
+        '200':
+          description: El acta ya estaba emitida. No se modificó nada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Acta'
+        '201':
+          description: Acta emitida.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Acta'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          description: La inspección no está cerrada. No se emite acta de una inspección abierta.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+        '422':
+          description: La inspección resultó conforme. No hay nada que constatar.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  /actas:
+    get:
+      tags: [Actas]
+      summary: Buscar actas
+      description: |
+        Rol mínimo: `tero-lectura`.
+      operationId: buscarActas
+      parameters:
+        - name: numero
+          in: query
+          schema:
+            type: string
+        - name: desde
+          in: query
+          description: Filtra por `emitidaEn`, inclusive.
+          schema:
+            $ref: '#/components/schemas/FechaHora'
+        - name: hasta
+          in: query
+          description: Filtra por `emitidaEn`, inclusive.
+          schema:
+            $ref: '#/components/schemas/FechaHora'
+        - name: notificada
+          in: query
+          schema:
+            type: boolean
+        - name: plazoVencido
+          in: query
+          description: Actas cuyo plazo de subsanación ya pasó.
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
+      responses:
+        '200':
+          description: Actas que cumplen el filtro.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, paginacion]
+                properties:
+                  datos:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Acta'
+                  paginacion:
+                    $ref: '#/components/schemas/Paginacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+
+  /actas/{actaId}/documento:
+    parameters:
+      - $ref: '#/components/parameters/ActaId'
+    get:
+      tags: [Actas]
+      summary: Descargar el PDF del acta
+      description: |
+        Rol mínimo: `tero-lectura`.
+      operationId: descargarActa
+      responses:
+        '200':
+          description: El PDF numerado.
+          headers:
+            Content-Disposition:
+              description: '`attachment; filename="acta-2026-000431.pdf"`'
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /actas/{actaId}/notificacion:
+    parameters:
+      - $ref: '#/components/parameters/ActaId'
+    post:
+      tags: [Actas]
+      summary: Registrar la notificación del acta
+      description: |
+        Deja asentado cuándo y por qué medio se notificó, que es lo que hace
+        correr el plazo de subsanación. Idempotente: la primera notificación
+        registrada es la que vale.
+
+        Rol mínimo: `tero-supervisor`.
+      operationId: notificarActa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [notificadaEn, medio]
+              properties:
+                notificadaEn:
+                  $ref: '#/components/schemas/FechaHora'
+                medio:
+                  type: string
+                  enum: [en_mano, correo, domicilio, electronico]
+                observaciones:
+                  type: string
+                  maxLength: 1000
+      responses:
+        '200':
+          description: Notificación registrada, o ya estaba registrada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Acta'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /actas/{actaId}:
+    parameters:
+      - $ref: '#/components/parameters/ActaId'
+    get:
+      tags: [Actas]
+      summary: Obtener un acta
+      description: |
+        Rol mínimo: `tero-lectura`.
+      operationId: obtenerActa
+      responses:
+        '200':
+          description: El acta.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Acta'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  # ── Trazabilidad ────────────────────────────────────────────────────
+
+  /auditoria:
+    get:
+      tags: [Trazabilidad]
+      summary: Consultar el historial
+      description: |
+        Tabla de solo agregado: quién, qué, cuándo y desde dónde. No se actualiza
+        ni se borra. Es lo que permite reconstruir qué pasó cuando alguien lo
+        discute.
+
+        Rol mínimo: `tero-supervisor`.
+      operationId: consultarAuditoria
+      parameters:
+        - name: entidad
+          in: query
+          description: '`inspeccion`, `objeto`, `acta`, `formulario`, `reclamo`.'
+          schema:
+            type: string
+        - name: entidadId
+          in: query
+          schema:
+            type: string
+        - name: actor
+          in: query
+          schema:
+            type: string
+        - name: desde
+          in: query
+          schema:
+            $ref: '#/components/schemas/FechaHora'
+        - name: hasta
+          in: query
+          schema:
+            $ref: '#/components/schemas/FechaHora'
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
+      responses:
+        '200':
+          description: Eventos que cumplen el filtro, del más reciente al más viejo.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, paginacion]
+                properties:
+                  datos:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventoAuditoria'
+                  paginacion:
+                    $ref: '#/components/schemas/Paginacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+    post:
+      tags: [Trazabilidad]
+      summary: Registrar un evento
+      description: |
+        Lo usa la aplicación de campo para asentar lo que ocurrió en el
+        dispositivo mientras no había señal, con la hora y el lugar en que
+        ocurrió de verdad. El servidor asienta por su cuenta lo que pasa por la
+        API: este camino es para lo que la API no vio.
+
+        El `actor` sale del token, no del cuerpo.
+
+        Rol mínimo: `tero-inspector`.
+      operationId: registrarEvento
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entidad, entidadId, accion, ocurridoEn]
+              properties:
+                entidad:
+                  type: string
+                entidadId:
+                  type: string
+                accion:
+                  type: string
+                detalle:
+                  type: string
+                  maxLength: 2000
+                ocurridoEn:
+                  $ref: '#/components/schemas/FechaHora'
+                ubicacion:
+                  $ref: '#/components/schemas/Ubicacion'
+      responses:
+        '201':
+          description: Evento registrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventoAuditoria'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+
+  # ── Sincronización ──────────────────────────────────────────────────
+
+  /sincronizacion/cambios:
+    get:
+      tags: [Sincronización]
+      summary: Traer lo que cambió
+      description: |
+        La bajada. El dispositivo pide todo lo que cambió desde la última vez y
+        guarda el `hasta` que devuelve la respuesta para usarlo como `desde` en
+        la siguiente. Sin `desde`, devuelve la carga inicial completa.
+
+        Solo trae **lo que le sirve a quien pregunta**: el territorio y el
+        catálogo del organismo, y las inspecciones asignadas a esa persona. Un
+        inspector no se baja las diez mil inspecciones de la intendencia para
+        hacer las nueve que tiene hoy.
+
+        La subida no tiene camino propio: cada entidad se manda a su recurso, y
+        todas son idempotentes por el identificador que generó el dispositivo. Un
+        lote habría obligado a definir qué pasa cuando la mitad falla, y no hace
+        falta.
+
+        Rol mínimo: `tero-inspector`.
+      operationId: traerCambios
+      parameters:
+        - name: desde
+          in: query
+          description: El `hasta` de la sincronización anterior.
+          schema:
+            $ref: '#/components/schemas/FechaHora'
+        - name: incluir
+          in: query
+          description: Qué conjuntos traer. Por defecto, todos.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [zonas, tiposObjeto, objetos, tiposInspeccion, formularioVersiones, inspecciones]
+      responses:
+        '200':
+          description: |
+            Lo que cambió. Los borrados viajan aparte, en `bajas`, porque un
+            dispositivo que estuvo un mes sin señal necesita saber qué dejó de
+            existir y no solo qué apareció.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hasta]
+                properties:
+                  hasta:
+                    allOf:
+                      - $ref: '#/components/schemas/FechaHora'
+                    description: Marca a usar como `desde` en la próxima bajada.
+                  zonas:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Zona'
+                  tiposObjeto:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TipoObjeto'
+                  objetos:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ObjetoInspeccionable'
+                  tiposInspeccion:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TipoInspeccion'
+                  formularioVersiones:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FormularioVersion'
+                  inspecciones:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Inspeccion'
+                  bajas:
+                    type: object
+                    description: Identificadores de lo que se borró o dejó de corresponderle.
+                    additionalProperties:
+                      type: array
+                      items:
+                        type: string
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+
+  # ── Indicadores ─────────────────────────────────────────────────────
+
+  /indicadores/resumen:
+    get:
+      tags: [Indicadores]
+      summary: Resumen del tablero
+      description: |
+        Los números de arriba del tablero: cuánto se inspeccionó, con qué
+        resultado, en cuánto tiempo y qué proporción de las faltas se subsanó
+        dentro del plazo.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: indicadoresResumen
+      parameters:
+        - $ref: '#/components/parameters/Desde'
+        - $ref: '#/components/parameters/Hasta'
+        - name: zonaId
+          in: query
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - name: tipoInspeccionId
+          in: query
+          schema:
+            $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: El resumen del período.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumenIndicadores'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+
+  /indicadores/cobertura:
+    get:
+      tags: [Indicadores]
+      summary: Cobertura por zona
+      description: |
+        Cuántos objetos hay, cuántos se inspeccionaron y cuántos quedaron sin
+        visitar, zona por zona. Es lo que alimenta el mapa de calor.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: indicadoresCobertura
+      parameters:
+        - $ref: '#/components/parameters/Desde'
+        - $ref: '#/components/parameters/Hasta'
+        - name: tipoObjetoId
+          in: query
+          schema:
+            $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Cobertura de cada zona en el período.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CoberturaZona'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+
+  /indicadores/series:
+    get:
+      tags: [Indicadores]
+      summary: Serie temporal
+      description: |
+        La evolución de un indicador a lo largo del período, para graficarla.
+
+        Rol mínimo: `tero-lectura`.
+      operationId: indicadoresSerie
+      parameters:
+        - $ref: '#/components/parameters/Desde'
+        - $ref: '#/components/parameters/Hasta'
+        - name: metrica
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [inspecciones, actas, cumplimiento, tiempoRespuesta]
+        - name: granularidad
+          in: query
+          schema:
+            type: string
+            enum: [dia, semana, mes]
+            default: semana
+        - name: zonaId
+          in: query
+          schema:
+            $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Los puntos de la serie, en orden cronológico.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [metrica, granularidad, puntos]
+                properties:
+                  metrica:
+                    type: string
+                  granularidad:
+                    type: string
+                  puntos:
+                    type: array
+                    items:
+                      type: object
+                      required: [periodo, valor]
+                      properties:
+                        periodo:
+                          type: string
+                          description: Fecha de inicio del período, `AAAA-MM-DD`.
+                        valor:
+                          type: number
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+
+  # ── Reclamos · posterior al piloto ──────────────────────────────────
+
+  /reclamos:
+    get:
+      tags: [Reclamos]
+      summary: Bandeja de reclamos
+      description: |
+        Lo que reportaron los vecinos y todavía hay que atender.
+
+        Rol mínimo: `tero-supervisor`.
+      operationId: listarReclamos
+      parameters:
+        - name: estado
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/EstadoReclamo'
+        - name: sinInspeccion
+          in: query
+          description: Los que todavía no derivaron en una inspección.
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
+      responses:
+        '200':
+          description: Reclamos que cumplen el filtro.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, paginacion]
+                properties:
+                  datos:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Reclamo'
+                  paginacion:
+                    $ref: '#/components/schemas/Paginacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+    post:
+      tags: [Reclamos]
+      summary: Registrar un reclamo
+      description: |
+        **Camino público, sin token.** Lo usa el formulario web del vecino.
+
+        Devuelve un `codigo` corto del estilo `RC-4F7K`, que es la única llave
+        que la persona necesita para volver a consultar. El contacto es opcional
+        a propósito: un reclamo anónimo tiene que poder entrar igual.
+
+        El organismo se deduce de la instalación, que es de un solo gobierno
+        local por dominio.
+      operationId: registrarReclamo
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReclamoEntrada'
+      responses:
+        '201':
+          description: Reclamo registrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeguimientoReclamo'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '429':
+          description: Demasiados reclamos desde el mismo origen en poco tiempo.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  /reclamos/{reclamoId}:
+    parameters:
+      - $ref: '#/components/parameters/ReclamoId'
+    get:
+      tags: [Reclamos]
+      summary: Obtener un reclamo
+      description: |
+        La vista interna, con todo lo que el organismo necesita para atenderlo.
+
+        Rol mínimo: `tero-supervisor`.
+      operationId: obtenerReclamo
+      responses:
+        '200':
+          description: El reclamo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reclamo'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /reclamos/{reclamoId}/inspeccion:
+    parameters:
+      - $ref: '#/components/parameters/ReclamoId'
+    put:
+      tags: [Reclamos]
+      summary: Enganchar el reclamo con una inspección
+      description: |
+        Es el enganche del circuito: el reporte del vecino se convierte en una
+        inspección sobre un objeto del territorio, y la trazabilidad de esa
+        inspección vuelve al vecino.
+
+        Idempotente: vincular dos veces la misma inspección no duplica hitos.
+
+        Rol mínimo: `tero-supervisor`.
+      operationId: vincularInspeccionAReclamo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [inspeccionUuid]
+              properties:
+                inspeccionUuid:
+                  $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Reclamo vinculado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reclamo'
+        '400':
+          $ref: '#/components/responses/DatosInvalidos'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          description: El reclamo ya está enganchado a otra inspección.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
+  /publico/reclamos/{codigo}:
+    parameters:
+      - name: codigo
+        in: path
+        required: true
+        description: |
+          El código que se llevó anotado el vecino. Tolerante a cómo lo escriba:
+          minúsculas, espacios de más, con o sin el prefijo.
+        schema:
+          type: string
+        example: RC-4F7K
+    get:
+      tags: [Reclamos]
+      summary: Consultar el estado de un reclamo
+      description: |
+        **Camino público, sin token.**
+
+        Devuelve `SeguimientoReclamo`, que es un tipo distinto de `Reclamo` a
+        propósito: lo que no está en ese esquema no se le puede mostrar al
+        vecino aunque una vista se distraiga.
+
+        Queda afuera quién es el inspector asignado, qué incumplimientos se
+        constataron, el encuadre normativo, el número de acta, las fotos, las
+        observaciones internas y cualquier dato del tercero inspeccionado. Nada
+        de eso es del vecino que reportó, y varias de esas cosas son datos
+        personales de otra persona.
+      operationId: consultarSeguimiento
+      security: []
+      responses:
+        '200':
+          description: El estado del trámite, en el idioma del vecino.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeguimientoReclamo'
+        '404':
+          description: No hay ningún reclamo con ese código.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+
 components:
+
   securitySchemes:
     openId:
       type: openIdConnect
+      description: |
+        OpenID Connect contra Keycloak. El realm es `tero` y el organismo viaja
+        en el claim `organismo_id` del token, junto con los roles en
+        `realm_access.roles`.
       openIdConnectUrl: /realms/tero/.well-known/openid-configuration
 
-paths: {}
+  # ── Parámetros ──────────────────────────────────────────────────────
+
+  parameters:
+
+    Pagina:
+      name: pagina
+      in: query
+      description: Página del listado, empezando en 1.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PorPagina:
+      name: porPagina
+      in: query
+      description: Elementos por página.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+
+    Desde:
+      name: desde
+      in: query
+      description: Inicio del período, inclusive.
+      schema:
+        $ref: '#/components/schemas/FechaHora'
+
+    Hasta:
+      name: hasta
+      in: query
+      description: Fin del período, inclusive.
+      schema:
+        $ref: '#/components/schemas/FechaHora'
+
+    ZonaId:
+      name: zonaId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+
+    TipoObjetoId:
+      name: tipoObjetoId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+
+    ObjetoId:
+      name: objetoId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+
+    TipoInspeccionId:
+      name: tipoInspeccionId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+
+    FormularioId:
+      name: formularioId
+      in: path
+      required: true
+      description: Identidad del formulario, no de una versión suya.
+      schema:
+        $ref: '#/components/schemas/Uuid'
+
+    FormularioVersionId:
+      name: formularioVersionId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+
+    BorradorId:
+      name: borradorId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+
+    InspeccionUuid:
+      name: uuid
+      in: path
+      required: true
+      description: El uuid que generó el dispositivo. Clave de la idempotencia.
+      schema:
+        $ref: '#/components/schemas/Uuid'
+
+    EvidenciaId:
+      name: evidenciaId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+
+    ActaId:
+      name: actaId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+
+    ReclamoId:
+      name: reclamoId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+
+  # ── Respuestas comunes ──────────────────────────────────────────────
+
+  responses:
+
+    NoAutenticado:
+      description: Falta el token, está vencido o no lo emitió el realm esperado.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          example:
+            type: https://github.com/godoworks/Tero/errores/no-autenticado
+            title: No autenticado
+            status: 401
+            detail: El token de acceso está vencido.
+
+    SinPermiso:
+      description: El token es válido pero le falta el rol necesario.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          example:
+            type: https://github.com/godoworks/Tero/errores/sin-permiso
+            title: Sin permiso
+            status: 403
+            detail: Se requiere el rol tero-supervisor.
+
+    NoEncontrado:
+      description: |
+        No existe en este organismo. Un recurso de otro gobierno local devuelve
+        esto mismo: desde afuera, no existe.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+
+    DatosInvalidos:
+      description: La petición está mal formada o algún campo no valida.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          example:
+            type: https://github.com/godoworks/Tero/errores/datos-invalidos
+            title: Datos inválidos
+            status: 400
+            detail: Hay 2 campos con problemas.
+            errores:
+              codigo: El código es obligatorio.
+              geometria: Las coordenadas deben ir en orden [lon, lat].
+
+  # ── Esquemas ────────────────────────────────────────────────────────
+
+  schemas:
+
+    # -- Primitivos --------------------------------------------------
+
+    Uuid:
+      type: string
+      format: uuid
+      description: Identificador estable, generado en el origen.
+      example: 6f3d2b1a-4c7e-4a51-9f0b-2d8e1c5a7b43
+
+    FechaHora:
+      type: string
+      format: date-time
+      description: ISO 8601 con zona horaria.
+      example: '2026-08-21T14:32:00-03:00'
+
+    Ubicacion:
+      type: object
+      description: |
+        Lectura del GPS del dispositivo. **No es una geometría del territorio**:
+        es un dato del sensor, con la precisión que el propio sensor informó.
+        Esa distinción es la que permite después discutir si el inspector estaba
+        o no en el lugar cuando cerró el acta.
+      required: [lat, lon]
+      properties:
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        lon:
+          type: number
+          minimum: -180
+          maximum: 180
+        precision:
+          type: number
+          minimum: 0
+          description: Precisión informada por el dispositivo, en metros.
+      example:
+        lat: -34.9011
+        lon: -56.1645
+        precision: 8
+
+    PuntoGeoJSON:
+      type: object
+      required: [type, coordinates]
+      properties:
+        type:
+          type: string
+          const: Point
+        coordinates:
+          type: array
+          minItems: 2
+          maxItems: 3
+          items:
+            type: number
+          description: '`[lon, lat]` en WGS 84.'
+      example:
+        type: Point
+        coordinates: [-56.1645, -34.9011]
+
+    PoligonoGeoJSON:
+      type: object
+      required: [type, coordinates]
+      properties:
+        type:
+          type: string
+          const: Polygon
+        coordinates:
+          type: array
+          items:
+            type: array
+            minItems: 4
+            items:
+              type: array
+              minItems: 2
+              maxItems: 3
+              items:
+                type: number
+          description: |
+            Anillos. El primero es el exterior y tiene que cerrar: el último par
+            de coordenadas repite el primero.
+
+    Geometria:
+      description: |
+        Geometría del territorio en GeoJSON, WGS 84 (EPSG:4326). Se distingue por
+        el campo `type` del propio GeoJSON, sin `discriminator`: los valores que
+        define la norma (`Point`, `Polygon`) no coinciden con los nombres de
+        estos esquemas, y forzar la correspondencia rompería los generadores de
+        clientes que la respetan al pie de la letra.
+      oneOf:
+        - $ref: '#/components/schemas/PuntoGeoJSON'
+        - $ref: '#/components/schemas/PoligonoGeoJSON'
+
+    Paginacion:
+      type: object
+      required: [pagina, porPagina, total]
+      properties:
+        pagina:
+          type: integer
+          minimum: 1
+        porPagina:
+          type: integer
+          minimum: 1
+        total:
+          type: integer
+          minimum: 0
+          description: Total de elementos que cumplen el filtro, no de la página.
+
+    Problema:
+      type: object
+      description: Error según RFC 9457.
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Identificador del tipo de error. Estable, se puede comparar.
+        title:
+          type: string
+          description: Resumen legible, siempre el mismo para un `type` dado.
+        status:
+          type: integer
+        detail:
+          type: string
+          description: Qué pasó en este caso concreto.
+        instance:
+          type: string
+          format: uri
+        errores:
+          type: object
+          description: Campo por campo, cuando el error es de validación.
+          additionalProperties:
+            type: string
+
+    # -- Territorio ---------------------------------------------------
+
+    Organismo:
+      type: object
+      required: [id, nombre, tipo]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        nombre:
+          type: string
+          example: Intendencia de Canelones
+        tipo:
+          type: string
+          enum: [intendencia, municipio]
+        configuracion:
+          type: object
+          description: |
+            Preferencias del organismo: formato de numeración de actas, marca,
+            zona horaria. Cada instalación pone lo suyo.
+          additionalProperties: true
+
+    Zona:
+      type: object
+      required: [id, organismoId, nombre, geometria]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        organismoId:
+          $ref: '#/components/schemas/Uuid'
+        nombre:
+          type: string
+          example: Ciudad de la Costa — Oeste
+        geometria:
+          $ref: '#/components/schemas/PoligonoGeoJSON'
+
+    ZonaEntrada:
+      type: object
+      required: [nombre, geometria]
+      properties:
+        nombre:
+          type: string
+          maxLength: 120
+        geometria:
+          $ref: '#/components/schemas/PoligonoGeoJSON'
+
+    TipoObjeto:
+      type: object
+      required: [id, organismoId, clave, nombre, icono]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        organismoId:
+          $ref: '#/components/schemas/Uuid'
+        clave:
+          type: string
+          enum: [luminaria, contenedor, obra, comercio, senalizacion, parador]
+        nombre:
+          type: string
+          example: Luminaria
+        icono:
+          type: string
+          description: Nombre del ícono con que se dibuja en el mapa.
+
+    TipoObjetoEntrada:
+      type: object
+      required: [clave, nombre, icono]
+      properties:
+        clave:
+          type: string
+          enum: [luminaria, contenedor, obra, comercio, senalizacion, parador]
+        nombre:
+          type: string
+          maxLength: 80
+        icono:
+          type: string
+          maxLength: 40
+
+    ObjetoInspeccionable:
+      type: object
+      description: La cosa concreta que se inspecciona. Es el centro del modelo.
+      required:
+        [id, organismoId, tipoObjetoId, codigo, denominacion, geometria, direccion, atributos, estado, creadoEn]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        organismoId:
+          $ref: '#/components/schemas/Uuid'
+        tipoObjetoId:
+          $ref: '#/components/schemas/Uuid'
+        codigo:
+          type: string
+          description: |
+            Padrón, número de habilitación o identificador propio del organismo.
+            Único dentro del organismo: es la llave con la que la intendencia
+            reconoce la cosa en sus otros sistemas.
+          example: PAD-45871
+        denominacion:
+          type: string
+          example: Panadería La Espiga
+        geometria:
+          $ref: '#/components/schemas/Geometria'
+        direccion:
+          type: string
+          example: Av. Giannattasio km 24.500
+        zonaId:
+          $ref: '#/components/schemas/Uuid'
+        atributos:
+          type: object
+          description: |
+            Lo propio de cada tipo: potencia de la luminaria, número de permiso
+            de la obra. Va suelto a propósito, para que agregar un tipo de objeto
+            no exija migrar la base.
+          additionalProperties:
+            type: [string, number, boolean]
+          example:
+            potenciaW: 150
+            tecnologia: LED
+        estado:
+          type: string
+          enum: [activo, inactivo, baja]
+        creadoEn:
+          $ref: '#/components/schemas/FechaHora'
+
+    ObjetoEntrada:
+      type: object
+      required: [id, tipoObjetoId, codigo, denominacion, geometria, direccion]
+      properties:
+        id:
+          allOf:
+            - $ref: '#/components/schemas/Uuid'
+          description: Lo genera el dispositivo. Es la clave de la idempotencia del alta.
+        tipoObjetoId:
+          $ref: '#/components/schemas/Uuid'
+        codigo:
+          type: string
+          maxLength: 60
+        denominacion:
+          type: string
+          maxLength: 200
+        geometria:
+          $ref: '#/components/schemas/Geometria'
+        direccion:
+          type: string
+          maxLength: 240
+        zonaId:
+          $ref: '#/components/schemas/Uuid'
+        atributos:
+          type: object
+          additionalProperties:
+            type: [string, number, boolean]
+        estado:
+          type: string
+          enum: [activo, inactivo, baja]
+          default: activo
+
+    # -- Catálogo -----------------------------------------------------
+
+    Pregunta:
+      type: object
+      required: [id, texto, tipo, obligatoria]
+      properties:
+        id:
+          type: string
+          description: Único dentro de la versión del formulario.
+        texto:
+          type: string
+        tipo:
+          type: string
+          enum: [si_no, si_no_na, texto, numero, opciones, foto]
+        obligatoria:
+          type: boolean
+        opciones:
+          type: array
+          description: Solo para `opciones`.
+          items:
+            type: string
+        respuestaQueIncumple:
+          type: string
+          description: |
+            Respuesta que constata una falta. Si el inspector responde esto, se
+            suma el incumplimiento indicado en `incumplimientoId`.
+        incumplimientoId:
+          type: string
+
+    Seccion:
+      type: object
+      required: [id, titulo, preguntas]
+      properties:
+        id:
+          type: string
+        titulo:
+          type: string
+        preguntas:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pregunta'
+
+    Incumplimiento:
+      type: object
+      required: [id, descripcion, normativa, plazoSubsanacionDias, gravedad]
+      properties:
+        id:
+          type: string
+        descripcion:
+          type: string
+        normativa:
+          type: string
+          description: Encuadre normativo, tal como se cita en el acta.
+          example: Decreto 4123, art. 17
+        plazoSubsanacionDias:
+          type: integer
+          minimum: 0
+        gravedad:
+          type: string
+          enum: [leve, grave, muy_grave]
+
+    FormularioVersion:
+      type: object
+      description: |
+        **Inmutable.** Nunca se modifica una versión existente: se crea una nueva
+        con `version` incrementada.
+      required: [id, formularioId, version, titulo, secciones, incumplimientos, vigenteDesde]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        formularioId:
+          $ref: '#/components/schemas/Uuid'
+        version:
+          type: integer
+          minimum: 1
+        titulo:
+          type: string
+        secciones:
+          type: array
+          items:
+            $ref: '#/components/schemas/Seccion'
+        incumplimientos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Incumplimiento'
+        vigenteDesde:
+          $ref: '#/components/schemas/FechaHora'
+        publicadaPor:
+          type: string
+          description: |
+            Queda en la versión y no solo en la auditoría: al reconstruir un acta
+            vieja hay que poder decir con qué checklist se hizo y quién lo puso
+            en vigencia, sin depender de que el registro de auditoría siga
+            estando.
+
+    BorradorFormulario:
+      type: object
+      required: [id, organismoId, formularioId, titulo, secciones, incumplimientos, autor, creadoEn, actualizadoEn]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        organismoId:
+          $ref: '#/components/schemas/Uuid'
+        formularioId:
+          $ref: '#/components/schemas/Uuid'
+        baseVersionId:
+          allOf:
+            - $ref: '#/components/schemas/Uuid'
+          description: De qué versión se partió. Vacío si el formulario es nuevo.
+        titulo:
+          type: string
+        secciones:
+          type: array
+          items:
+            $ref: '#/components/schemas/Seccion'
+        incumplimientos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Incumplimiento'
+        autor:
+          type: string
+        creadoEn:
+          $ref: '#/components/schemas/FechaHora'
+        actualizadoEn:
+          $ref: '#/components/schemas/FechaHora'
+
+    BorradorEntrada:
+      type: object
+      required: [titulo, secciones, incumplimientos]
+      properties:
+        titulo:
+          type: string
+          maxLength: 200
+        secciones:
+          type: array
+          items:
+            $ref: '#/components/schemas/Seccion'
+        incumplimientos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Incumplimiento'
+
+    TipoInspeccion:
+      type: object
+      required: [id, organismoId, nombre, direccionResponsable, formularioVersionId, plazoSubsanacionDias, tipoObjetoIds]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        organismoId:
+          $ref: '#/components/schemas/Uuid'
+        nombre:
+          type: string
+          example: Habilitación comercial — control anual
+        direccionResponsable:
+          type: string
+          example: Dirección de Contralor
+        formularioVersionId:
+          allOf:
+            - $ref: '#/components/schemas/Uuid'
+          description: La versión vigente hoy. Cambia cada vez que se publica un borrador.
+        plazoSubsanacionDias:
+          type: integer
+          minimum: 0
+          description: Se usa cuando el incumplimiento constatado no define uno propio.
+        tipoObjetoIds:
+          type: array
+          description: Tipos de objeto a los que aplica.
+          items:
+            $ref: '#/components/schemas/Uuid'
+
+    TipoInspeccionEntrada:
+      type: object
+      required: [nombre, direccionResponsable, plazoSubsanacionDias, tipoObjetoIds]
+      properties:
+        nombre:
+          type: string
+          maxLength: 160
+        direccionResponsable:
+          type: string
+          maxLength: 160
+        plazoSubsanacionDias:
+          type: integer
+          minimum: 0
+          maximum: 365
+        tipoObjetoIds:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Uuid'
+
+    # -- Inspecciones -------------------------------------------------
+
+    OrigenInspeccion:
+      type: string
+      enum: [plan, reclamo, oficio]
+
+    EstadoInspeccion:
+      type: string
+      enum: [pendiente, asignada, en_campo, cerrada, vencida]
+
+    ResultadoInspeccion:
+      type: string
+      enum: [conforme, con_observaciones, no_conforme]
+
+    Prioridad:
+      type: string
+      enum: [baja, media, alta, urgente]
+
+    Inspeccion:
+      type: object
+      required: [uuid, organismoId, objetoId, tipoInspeccionId, formularioVersionId, origen, estado, prioridad, creadaEn, actualizadaEn]
+      properties:
+        uuid:
+          allOf:
+            - $ref: '#/components/schemas/Uuid'
+          description: Generado en el dispositivo. Clave de la idempotencia.
+        organismoId:
+          $ref: '#/components/schemas/Uuid'
+        objetoId:
+          $ref: '#/components/schemas/Uuid'
+        tipoInspeccionId:
+          $ref: '#/components/schemas/Uuid'
+        formularioVersionId:
+          allOf:
+            - $ref: '#/components/schemas/Uuid'
+          description: Contra qué versión del formulario se completó. Nunca cambia.
+        origen:
+          $ref: '#/components/schemas/OrigenInspeccion'
+        estado:
+          $ref: '#/components/schemas/EstadoInspeccion'
+        prioridad:
+          $ref: '#/components/schemas/Prioridad'
+        asignadoA:
+          type: string
+          description: '`sub` del usuario en Keycloak.'
+        programadaPara:
+          $ref: '#/components/schemas/FechaHora'
+        ejecutadaEn:
+          $ref: '#/components/schemas/FechaHora'
+        ubicacionEjecucion:
+          allOf:
+            - $ref: '#/components/schemas/Ubicacion'
+          description: Dónde estaba el inspector al cerrar la inspección.
+        resultado:
+          $ref: '#/components/schemas/ResultadoInspeccion'
+        padreUuid:
+          allOf:
+            - $ref: '#/components/schemas/Uuid'
+          description: Si es una reinspección, el uuid de la original.
+        creadaEn:
+          $ref: '#/components/schemas/FechaHora'
+        actualizadaEn:
+          $ref: '#/components/schemas/FechaHora'
+
+    InspeccionEntrada:
+      type: object
+      required: [uuid, objetoId, tipoInspeccionId, origen]
+      properties:
+        uuid:
+          allOf:
+            - $ref: '#/components/schemas/Uuid'
+          description: Lo genera quien crea la inspección. No lo asigna el servidor.
+        objetoId:
+          $ref: '#/components/schemas/Uuid'
+        tipoInspeccionId:
+          $ref: '#/components/schemas/Uuid'
+        origen:
+          $ref: '#/components/schemas/OrigenInspeccion'
+        prioridad:
+          allOf:
+            - $ref: '#/components/schemas/Prioridad'
+          default: media
+        asignadoA:
+          type: string
+        programadaPara:
+          $ref: '#/components/schemas/FechaHora'
+        padreUuid:
+          $ref: '#/components/schemas/Uuid'
+        creadaEn:
+          allOf:
+            - $ref: '#/components/schemas/FechaHora'
+          description: |
+            Cuándo se creó **en el dispositivo**. Si no viene, el servidor pone
+            la hora de recepción, que puede ser días posterior.
+
+    Respuesta:
+      type: object
+      required: [inspeccionUuid, formularioVersionId, datos, incumplimientoIds]
+      properties:
+        inspeccionUuid:
+          $ref: '#/components/schemas/Uuid'
+        formularioVersionId:
+          $ref: '#/components/schemas/Uuid'
+        datos:
+          type: object
+          description: Clave, el `id` de la pregunta.
+          additionalProperties:
+            type: [string, number, boolean, 'null']
+        observaciones:
+          type: string
+        incumplimientoIds:
+          type: array
+          description: Ids de los incumplimientos constatados.
+          items:
+            type: string
+
+    RespuestaEntrada:
+      type: object
+      required: [formularioVersionId, datos, incumplimientoIds]
+      properties:
+        formularioVersionId:
+          allOf:
+            - $ref: '#/components/schemas/Uuid'
+          description: Tiene que coincidir con el de la inspección.
+        datos:
+          type: object
+          additionalProperties:
+            type: [string, number, boolean, 'null']
+        observaciones:
+          type: string
+          maxLength: 4000
+        incumplimientoIds:
+          type: array
+          items:
+            type: string
+
+    Evidencia:
+      type: object
+      required: [id, inspeccionUuid, tipo, contenidoUrl, tomadaEn, hash]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        inspeccionUuid:
+          $ref: '#/components/schemas/Uuid'
+        tipo:
+          type: string
+          enum: [foto, audio]
+        contenidoUrl:
+          type: string
+          format: uri-reference
+          description: Camino para descargar el archivo. Requiere token.
+        tipoMime:
+          type: string
+          example: image/jpeg
+        tamanoBytes:
+          type: integer
+        ubicacion:
+          $ref: '#/components/schemas/Ubicacion'
+        tomadaEn:
+          allOf:
+            - $ref: '#/components/schemas/FechaHora'
+          description: Cuándo se tomó, no cuándo se subió.
+        recibidaEn:
+          allOf:
+            - $ref: '#/components/schemas/FechaHora'
+          description: Cuándo llegó al servidor. Puede ser días después.
+        hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: sha256 en hexadecimal, para poder probar que no se alteró.
+        preguntaId:
+          type: string
+
+    Firma:
+      type: object
+      required: [inspeccionUuid, firmante, documento, firmadoEn, seNegoAFirmar]
+      properties:
+        inspeccionUuid:
+          $ref: '#/components/schemas/Uuid'
+        firmante:
+          type: string
+        documento:
+          type: string
+        imagenUrl:
+          type: string
+          format: uri-reference
+          description: PNG del trazo. Ausente cuando hubo negativa a firmar.
+        firmadoEn:
+          $ref: '#/components/schemas/FechaHora'
+        seNegoAFirmar:
+          type: boolean
+          description: |
+            Cuando la persona se niega a firmar se deja constancia. La negativa
+            es un hecho del acta, no la falta de un dato.
+
+    Acta:
+      type: object
+      required: [id, inspeccionUuid, numero, emitidaEn, documentoUrl]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        inspeccionUuid:
+          $ref: '#/components/schemas/Uuid'
+        numero:
+          type: string
+          description: Correlativo por organismo, con el formato del organismo.
+          example: ACT-2026-000431
+        emitidaEn:
+          $ref: '#/components/schemas/FechaHora'
+        plazoSubsanacion:
+          allOf:
+            - $ref: '#/components/schemas/FechaHora'
+          description: Fecha límite para subsanar lo constatado.
+        notificadaEn:
+          $ref: '#/components/schemas/FechaHora'
+        medioNotificacion:
+          type: string
+          enum: [en_mano, correo, domicilio, electronico]
+        documentoUrl:
+          type: string
+          format: uri-reference
+          description: Camino para descargar el PDF. Requiere token.
+        incumplimientos:
+          type: array
+          description: Las faltas constatadas, congeladas tal como se citaron en el PDF.
+          items:
+            $ref: '#/components/schemas/Incumplimiento'
+
+    # -- Trazabilidad -------------------------------------------------
+
+    EventoAuditoria:
+      type: object
+      required: [id, organismoId, entidad, entidadId, accion, actor, ocurridoEn]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        organismoId:
+          $ref: '#/components/schemas/Uuid'
+        entidad:
+          type: string
+          description: Sobre qué entidad ocurrió.
+          example: inspeccion
+        entidadId:
+          type: string
+        accion:
+          type: string
+          example: acta_emitida
+        detalle:
+          type: string
+        actor:
+          type: string
+          description: '`sub` del usuario, o `sistema` para lo que hace el servidor solo.'
+        ocurridoEn:
+          $ref: '#/components/schemas/FechaHora'
+        ubicacion:
+          $ref: '#/components/schemas/Ubicacion'
+
+    # -- Indicadores --------------------------------------------------
+
+    ResumenIndicadores:
+      type: object
+      required: [desde, hasta, inspecciones, actas, cumplimiento, tiempos]
+      properties:
+        desde:
+          $ref: '#/components/schemas/FechaHora'
+        hasta:
+          $ref: '#/components/schemas/FechaHora'
+        inspecciones:
+          type: object
+          required: [total, cerradas, pendientes, vencidas]
+          properties:
+            total:
+              type: integer
+            cerradas:
+              type: integer
+            pendientes:
+              type: integer
+            vencidas:
+              type: integer
+            porResultado:
+              type: object
+              additionalProperties:
+                type: integer
+        actas:
+          type: object
+          properties:
+            emitidas:
+              type: integer
+            notificadas:
+              type: integer
+            conPlazoVencido:
+              type: integer
+        cumplimiento:
+          type: object
+          description: Proporción de faltas subsanadas dentro del plazo, verificada por reinspección.
+          properties:
+            subsanadasEnPlazo:
+              type: integer
+            subsanadasFueraDePlazo:
+              type: integer
+            sinSubsanar:
+              type: integer
+            tasa:
+              type: number
+              minimum: 0
+              maximum: 1
+        tiempos:
+          type: object
+          description: En horas. La mediana antes que el promedio, que una sola inspección vieja distorsiona.
+          properties:
+            medianaHastaEjecucion:
+              type: number
+            medianaHastaActa:
+              type: number
+            medianaHastaNotificacion:
+              type: number
+
+    CoberturaZona:
+      type: object
+      required: [zonaId, nombre, objetos, inspeccionados]
+      properties:
+        zonaId:
+          $ref: '#/components/schemas/Uuid'
+        nombre:
+          type: string
+        objetos:
+          type: integer
+          description: Objetos activos en la zona.
+        inspeccionados:
+          type: integer
+          description: Cuántos de esos se inspeccionaron al menos una vez en el período.
+        cobertura:
+          type: number
+          minimum: 0
+          maximum: 1
+        actasEmitidas:
+          type: integer
+
+    # -- Reclamos -----------------------------------------------------
+
+    EstadoReclamo:
+      type: string
+      description: |
+        En el idioma del vecino, no en el del organismo. `recibido` no es
+        «pendiente» y `resuelto` no es «cerrada»: son las cuatro cosas que una
+        persona necesita saber sobre un trámite suyo.
+      enum: [recibido, asignado, inspeccionado, resuelto]
+
+    ResultadoVisible:
+      type: string
+      description: Cómo se le comunica al vecino lo que dio la inspección, sin nombrar la falta.
+      enum: [sin_hallazgos, requiere_correccion]
+
+    HitoReclamo:
+      type: object
+      description: Un paso ya ocurrido. Solo se agrega, nunca se corrige.
+      required: [estado, ocurridoEn]
+      properties:
+        estado:
+          $ref: '#/components/schemas/EstadoReclamo'
+        ocurridoEn:
+          $ref: '#/components/schemas/FechaHora'
+
+    ContactoReclamo:
+      type: object
+      properties:
+        nombre:
+          type: string
+          maxLength: 160
+        telefono:
+          type: string
+          maxLength: 40
+
+    Reclamo:
+      type: object
+      description: Vista interna. **No se le devuelve nunca al vecino.**
+      required: [id, organismoId, codigo, descripcion, ubicacion, estado, hitos, creadoEn, actualizadoEn]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        organismoId:
+          $ref: '#/components/schemas/Uuid'
+        codigo:
+          type: string
+          description: |
+            Código corto que el vecino se lleva anotado o le dictan por teléfono.
+            Es la única llave que necesita para volver a consultar.
+          example: RC-4F7K
+        descripcion:
+          type: string
+        ubicacion:
+          $ref: '#/components/schemas/Ubicacion'
+        referencia:
+          type: string
+          description: Calle y altura o esquina, si la persona la sabe decir.
+        contacto:
+          $ref: '#/components/schemas/ContactoReclamo'
+        estado:
+          $ref: '#/components/schemas/EstadoReclamo'
+        inspeccionUuid:
+          allOf:
+            - $ref: '#/components/schemas/Uuid'
+          description: La inspección que lo resuelve. Es el enganche del circuito.
+        objetoId:
+          $ref: '#/components/schemas/Uuid'
+        hitos:
+          type: array
+          items:
+            $ref: '#/components/schemas/HitoReclamo'
+        creadoEn:
+          $ref: '#/components/schemas/FechaHora'
+        actualizadoEn:
+          $ref: '#/components/schemas/FechaHora'
+
+    ReclamoEntrada:
+      type: object
+      required: [descripcion, ubicacion]
+      properties:
+        descripcion:
+          type: string
+          minLength: 5
+          maxLength: 2000
+        ubicacion:
+          $ref: '#/components/schemas/Ubicacion'
+        referencia:
+          type: string
+          maxLength: 240
+        contacto:
+          $ref: '#/components/schemas/ContactoReclamo'
+
+    PasoSeguimiento:
+      type: object
+      required: [estado, titulo, cumplido]
+      properties:
+        estado:
+          $ref: '#/components/schemas/EstadoReclamo'
+        titulo:
+          type: string
+          description: Texto en idioma del vecino.
+        cumplido:
+          type: boolean
+        ocurridoEn:
+          $ref: '#/components/schemas/FechaHora'
+
+    SeguimientoReclamo:
+      type: object
+      description: |
+        Vista pública de un reclamo. Este esquema existe para que sea
+        **imposible filtrar de más**: la consulta del vecino no devuelve un
+        `Reclamo` ni una `Inspeccion`, devuelve esto. Lo que no está acá no se
+        le puede mostrar aunque una vista se distraiga.
+
+        Queda adentro porque es información sobre **su** trámite: en qué paso va,
+        cuándo ocurrió cada paso, si un inspector ya fue al lugar, si se constató
+        algo que hay que corregir y hasta cuándo tiene plazo el responsable.
+      required: [codigo, descripcion, ubicacion, estado, pasos, hayInspeccion, creadoEn, actualizadoEn]
+      properties:
+        codigo:
+          type: string
+        descripcion:
+          type: string
+        ubicacion:
+          $ref: '#/components/schemas/Ubicacion'
+        referencia:
+          type: string
+        estado:
+          $ref: '#/components/schemas/EstadoReclamo'
+        pasos:
+          type: array
+          items:
+            $ref: '#/components/schemas/PasoSeguimiento'
+        hayInspeccion:
+          type: boolean
+          description: Si ya hay una inspección enganchada. Nunca cuál ni de quién.
+        resultado:
+          allOf:
+            - $ref: '#/components/schemas/ResultadoVisible'
+          description: Solo cuando la inspección ya se hizo.
+        plazoHasta:
+          allOf:
+            - $ref: '#/components/schemas/FechaHora'
+          description: Fecha límite que se le dio al responsable para corregir.
+        creadoEn:
+          $ref: '#/components/schemas/FechaHora'
+        actualizadoEn:
+          $ref: '#/components/schemas/FechaHora'

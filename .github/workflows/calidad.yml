@@ -83,3 +83,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validar docker-compose.yml
         run: docker compose config --quiet
+
+  # La especificación de la API es el contrato con el que se integra cualquier
+  # otro sistema del gobierno local. Si deja de ser válida, quien la consume se
+  # entera cuando le rompe el generador de clientes: acá se entera antes.
+  api:
+    name: Especificación de la API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validar OpenAPI
+        run: npx --yes @redocly/cli@2 lint documentacion/api/openapi.yaml
